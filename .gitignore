@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+douyin_demo.db
+_tmp_openapi_pdf_text.txt
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.vite-temp/

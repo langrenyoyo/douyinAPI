@@ -1,0 +1,7 @@
+{
+  "main_account_id": 1234,
+  "from_user_id": "_account_open_id_demo",
+  "lead_open_id": "_lead_open_id_demo",
+  "content": "您好，这是一条通过本地线索表发送的测试私信。",
+  "scene": "im_enter_direct_msg"
+}

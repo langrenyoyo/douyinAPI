@@ -1,0 +1,6 @@
+{
+  "event": "im_receive_msg",
+  "from_user_id": "_lead_open_id_demo",
+  "to_user_id": "_account_open_id_demo",
+  "content": "{\"create_time\":1765850332042,\"conversation_short_id\":\"@demo_conversation_id==\",\"server_message_id\":\"@demo_message_id==\",\"conversation_type\":1,\"message_type\":\"text\",\"source\":\"\",\"user_infos\":[{\"open_id\":\"_lead_open_id_demo\",\"nick_name\":\"测试用户\",\"avatar\":\"https://example.com/avatar.png\"}]}"
+}

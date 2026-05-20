@@ -1,0 +1,11 @@
+{
+  "main_account_id": 1234,
+  "account_name": "测试抖音号",
+  "auth_redirect_url": "https://your-domain.example.com/douyin/auth/callback",
+  "callback_url": "https://your-domain.example.com/webhook/douyin",
+  "callback_event": [
+    "im_receive_msg",
+    "im_send_msg",
+    "im_enter_direct_msg"
+  ]
+}

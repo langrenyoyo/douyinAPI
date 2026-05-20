@@ -1,0 +1,9 @@
+{
+  "main_account_id": 1234,
+  "from_user_id": "_account_open_id_demo",
+  "to_user_id": "_lead_open_id_demo",
+  "content": "您好，这是一条测试私信。",
+  "conversation_id": "@demo_conversation_id==",
+  "msg_id": "@demo_message_id==",
+  "scene": "im_reply_msg"
+}
