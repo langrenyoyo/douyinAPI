@@ -39,6 +39,7 @@
 - `AUTH_REDIRECT_URL`：授权成功后的回跳地址
 - `DY_MAIN_ACCOUNT_ID`：抖音主账号 id
 - `DY_ACCOUNT_NAME`：抖音账号名称
+- `DB_PATH`：SQLite 数据库路径，Docker 下建议使用 `/data/douyin_demo.db`
 
 PowerShell 示例：
 
@@ -83,6 +84,7 @@ cp .env.example .env
 - `DY_ACCOUNT_NAME`
 - `PUBLIC_BASE_URL`
 - `AUTH_REDIRECT_URL`
+- `DB_PATH`（Docker 环境建议使用 `/data/douyin_demo.db`）
 
 启动：
 

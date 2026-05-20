@@ -17,7 +17,10 @@ from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
-DB_PATH = os.path.join(BASE_DIR, "douyin_demo.db")
+DB_PATH = os.getenv("DB_PATH", os.path.join(BASE_DIR, "douyin_demo.db"))
+DB_DIR = os.path.dirname(DB_PATH)
+if DB_DIR:
+    os.makedirs(DB_DIR, exist_ok=True)
 DB_URL = f"sqlite:///{DB_PATH}"
 
 DY_SECRET_KEY = os.getenv("DY_SECRET_KEY", "")

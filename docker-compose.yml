@@ -9,7 +9,7 @@ services:
     ports:
       - "8081:8081"
     volumes:
-      - ./douyin_demo.db:/app/douyin_demo.db
+      - ./data:/data
     restart: unless-stopped
 
   frontend:
