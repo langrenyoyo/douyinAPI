@@ -1,0 +1,10 @@
+.git
+.gitignore
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+frontend/node_modules/
+frontend/dist/
+_tmp_openapi_pdf_text.txt

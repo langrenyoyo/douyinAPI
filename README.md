@@ -66,6 +66,50 @@ cd frontend
 npm run dev
 ```
 
+## Docker 快速部署
+
+服务器上推荐流程：
+
+```bash
+git clone https://github.com/langrenyoyo/douyinAPI.git
+cd douyinAPI
+cp .env.example .env
+```
+
+然后编辑 `.env`，至少补这些真实值：
+
+- `DY_SECRET_KEY`
+- `DY_MAIN_ACCOUNT_ID`
+- `DY_ACCOUNT_NAME`
+- `PUBLIC_BASE_URL`
+- `AUTH_REDIRECT_URL`
+
+启动：
+
+```bash
+docker compose up -d --build
+```
+
+启动后访问：
+
+- 前端：`http://服务器IP:8010`
+- 后端：`http://服务器IP:8081`
+- 后端文档：`http://服务器IP:8081/docs`
+
+查看状态：
+
+```bash
+docker compose ps
+docker compose logs -f backend
+docker compose logs -f frontend
+```
+
+停止：
+
+```bash
+docker compose down
+```
+
 ## 路由
 
 - `GET /health`：健康检查
