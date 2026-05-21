@@ -246,6 +246,8 @@ export default function App() {
   const [unreadSummary, setUnreadSummary] = useState({})
   const [activeConversation, setActiveConversation] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [authTestResult, setAuthTestResult] = useState(null)
+  const [authTestLoading, setAuthTestLoading] = useState(false)
 
   useEffect(() => {
     async function loadData() {
@@ -295,6 +297,28 @@ export default function App() {
     loadMessages()
   }, [activeConversation])
 
+  async function testDouyinAuth() {
+    setAuthTestLoading(true)
+    setAuthTestResult(null)
+    try {
+      const res = await fetch('/douyin/get-auth-url/configured', { method: 'POST' })
+      const data = await res.json()
+      setAuthTestResult({
+        ok: res.ok,
+        status: res.status,
+        data,
+      })
+    } catch (error) {
+      setAuthTestResult({
+        ok: false,
+        status: 0,
+        data: { msg: error.message },
+      })
+    } finally {
+      setAuthTestLoading(false)
+    }
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -327,8 +351,20 @@ export default function App() {
           </div>
           <div className="topbar-actions">
             <button className="chip">前端 8010 / 后端 8081</button>
+            <button className="primary-btn" onClick={testDouyinAuth} disabled={authTestLoading}>
+              {authTestLoading ? '测试中...' : '测试抖音接口'}
+            </button>
           </div>
         </header>
+
+        {authTestResult ? (
+          <section className={`banner ${authTestResult.ok ? 'info' : 'warning'}`}>
+            <strong>抖音接口测试：</strong>
+            <span>
+              {authTestResult.ok ? '成功' : '失败'} / HTTP {authTestResult.status} / {JSON.stringify(authTestResult.data)}
+            </span>
+          </section>
+        ) : null}
 
         {currentPage === 'leads' ? (
           <LeadPage stats={stats} leads={leads} loading={loading} />

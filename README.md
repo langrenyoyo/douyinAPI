@@ -184,6 +184,17 @@ sha256(SECRET_KEY + body + "-" + timestamp)
 - 没有公网回调地址，就不会收到真实抖音事件
 - 没有事件进入，本地线索/会话/消息表就会一直为空
 
+## 前端抖音接口测试
+
+前端右上角新增了一个 `测试抖音接口` 按钮，会直接调用后端：
+
+- `POST /douyin/get-auth-url/configured`
+
+如果返回成功，说明后端到抖音 OpenAPI 的请求链路正常。  
+如果失败，可以去看：
+
+- `GET /api-call-logs`
+
 ## 本地测试 webhook
 
 先启动服务，再执行：
