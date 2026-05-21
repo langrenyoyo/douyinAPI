@@ -236,6 +236,58 @@ function ConversationPage({ conversations, activeConversation, messages, quickRe
   )
 }
 
+function AuthStatusCard({ authStatus, loading }) {
+  if (loading) {
+    return <section className="banner info">正在检查抖音授权状态...</section>
+  }
+
+  if (!authStatus) {
+    return <section className="banner warning">暂未获取到授权状态，请先完成授权或检查后端接口。</section>
+  }
+
+  const authorized = Boolean(authStatus.authorized)
+  const bindStatus = authStatus.bind_info?.bind_status
+  const name = authStatus.callback_record?.nick_name || authStatus.bind_info?.account_name || '--'
+  const openId = authStatus.callback_record?.open_id || authStatus.bind_info?.open_id || '--'
+
+  return (
+    <section className={`table-card auth-status-card ${authorized ? 'authorized' : 'unauthorized'}`}>
+      <div className="table-header">
+        <strong>抖音授权状态</strong>
+        <span className={`auth-status-badge ${authorized ? 'ok' : 'warn'}`}>
+          {authorized ? '已授权' : '待授权'}
+        </span>
+      </div>
+      <div className="auth-status-grid">
+        <div className="auth-status-item">
+          <span>当前状态</span>
+          <strong>{authorized ? '授权成功' : '尚未授权'}</strong>
+        </div>
+        <div className="auth-status-item">
+          <span>是否需重授权</span>
+          <strong>{authStatus.need_reauthorize ? '是' : '否'}</strong>
+        </div>
+        <div className="auth-status-item">
+          <span>账号昵称</span>
+          <strong>{name}</strong>
+        </div>
+        <div className="auth-status-item">
+          <span>绑定状态</span>
+          <strong>{bindStatus ?? '--'}</strong>
+        </div>
+        <div className="auth-status-item">
+          <span>open_id</span>
+          <strong>{openId}</strong>
+        </div>
+        <div className="auth-status-item">
+          <span>绑定时间</span>
+          <strong>{authStatus.bind_info?.bind_time || '--'}</strong>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function AuthCallbackPage() {
   const params = new URLSearchParams(window.location.search)
   const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, '').replace(/^\?/, ''))
@@ -502,35 +554,42 @@ export default function App() {
   const [eventLog, setEventLog] = useState([])
   const [eventLoading, setEventLoading] = useState(false)
   const [apiLog, setApiLog] = useState(null)
+  const [workspaceAuthStatus, setWorkspaceAuthStatus] = useState(null)
+  const [workspaceAuthLoading, setWorkspaceAuthLoading] = useState(true)
 
   useEffect(() => {
     async function loadData() {
       setLoading(true)
+      setWorkspaceAuthLoading(true)
       try {
-        const [statsRes, leadsRes, conversationsRes, quickRepliesRes, unreadRes] = await Promise.all([
+        const [statsRes, leadsRes, conversationsRes, quickRepliesRes, unreadRes, authStatusRes] = await Promise.all([
           fetch('/dashboard/lead-stats'),
           fetch('/leads?page=1&page_size=20'),
           fetch('/conversations'),
           fetch('/quick-replies'),
           fetch('/conversations/unread-summary'),
+          fetch('/auth-status'),
         ])
         const statsData = await statsRes.json()
         const leadsData = await leadsRes.json()
         const conversationsData = await conversationsRes.json()
         const quickRepliesData = await quickRepliesRes.json()
         const unreadData = await unreadRes.json()
+        const authStatusData = await authStatusRes.json()
 
         setStats(statsData)
         setLeads(leadsData.items || [])
         setConversations(conversationsData || [])
         setQuickReplies(quickRepliesData || [])
         setUnreadSummary(unreadData || {})
+        setWorkspaceAuthStatus(authStatusData?.data || null)
 
         if (conversationsData?.length) {
           setActiveConversation(conversationsData[0])
         }
       } finally {
         setLoading(false)
+        setWorkspaceAuthLoading(false)
       }
     }
 
@@ -638,6 +697,8 @@ export default function App() {
             </button>
           </div>
         </header>
+
+        <AuthStatusCard authStatus={workspaceAuthStatus} loading={workspaceAuthLoading} />
 
         {authTestResult ? (
           <section className={`banner ${authTestResult.ok ? 'info' : 'warning'}`}>

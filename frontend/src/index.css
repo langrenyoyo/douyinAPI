@@ -234,6 +234,61 @@ textarea {
   gap: 10px;
 }
 
+.auth-status-card {
+  display: grid;
+  gap: 16px;
+}
+
+.auth-status-card.authorized {
+  border-color: rgba(91, 180, 120, 0.35);
+}
+
+.auth-status-card.unauthorized {
+  border-color: rgba(230, 173, 82, 0.35);
+}
+
+.auth-status-badge {
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.auth-status-badge.ok {
+  background: rgba(77, 177, 111, 0.14);
+  color: #23824d;
+}
+
+.auth-status-badge.warn {
+  background: rgba(240, 176, 75, 0.18);
+  color: #9a6200;
+}
+
+.auth-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.auth-status-item {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: #f7f9ff;
+}
+
+.auth-status-item span {
+  color: #7b8aa4;
+  font-size: 13px;
+}
+
+.auth-status-item strong {
+  color: #23324f;
+  font-size: 15px;
+  word-break: break-all;
+}
+
 .event-list {
   display: grid;
   gap: 10px;
