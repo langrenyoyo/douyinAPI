@@ -33,6 +33,11 @@ DY_HTTP_TIMEOUT_SECONDS = int(os.getenv("DY_HTTP_TIMEOUT_SECONDS", "20"))
 DY_CLIENT_KEY = os.getenv("DY_CLIENT_KEY", "")
 DY_CLIENT_SECRET = os.getenv("DY_CLIENT_SECRET", "")
 DY_OAUTH_BASE_URL = os.getenv("DY_OAUTH_BASE_URL", "https://open.douyin.com")
+DY_CALLBACK_EVENTS = [
+    item.strip()
+    for item in os.getenv("DY_CALLBACK_EVENTS", "").split(",")
+    if item.strip()
+]
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "")
 AUTH_REDIRECT_URL = os.getenv("AUTH_REDIRECT_URL", "")
 DY_MAIN_ACCOUNT_ID = int(os.getenv("DY_MAIN_ACCOUNT_ID", "0"))
@@ -171,6 +176,9 @@ class AuthCallbackRecord(Base):
     auth_code = Column(Text, nullable=True)
     state = Column(Text, nullable=True)
     error = Column(Text, nullable=True)
+    open_id = Column(String(255), nullable=True)
+    nick_name = Column(String(255), nullable=True)
+    avatar = Column(Text, nullable=True)
     raw_query = Column(Text, nullable=True)
     callback_url = Column(Text, nullable=False)
     created_at = Column(String(64), nullable=False)
@@ -273,8 +281,18 @@ class AuthCallbackSaveRequest(BaseModel):
     auth_code: str | None = None
     state: str | None = None
     error: str | None = None
+    open_id: str | None = None
+    nick_name: str | None = None
+    avatar: str | None = None
     raw_query: str | None = None
     callback_url: str
+
+
+class BindInfoRequest(BaseModel):
+    main_account_id: int
+    page_num: int = 1
+    page_size: int = 10
+    name_or_open_id: str | None = None
 
 
 class UpstreamApiError(Exception):
@@ -600,6 +618,9 @@ def persist_auth_callback_record(
         auth_code=body.auth_code,
         state=body.state,
         error=body.error,
+        open_id=body.open_id,
+        nick_name=body.nick_name,
+        avatar=body.avatar,
         raw_query=body.raw_query,
         callback_url=body.callback_url,
         created_at=now_iso(),
@@ -747,6 +768,55 @@ def build_auth_status(record: AuthTokenRecord | None) -> dict[str, Any]:
     }
 
 
+def build_bind_auth_status(
+    callback_record: AuthCallbackRecord | None,
+    bind_info: dict[str, Any] | None,
+    token_record: AuthTokenRecord | None,
+) -> dict[str, Any]:
+    bind_status = bind_info.get("bind_status") if bind_info else None
+    authorized = bind_status == 1
+    reason = "ok" if authorized else "bind_info_not_found"
+
+    if callback_record is None:
+        reason = "no_callback_record"
+    elif not callback_record.open_id:
+        reason = "callback_open_id_missing"
+    elif bind_status == 0:
+        reason = "not_bound"
+    elif bind_status == 2:
+        reason = "bind_failed"
+    elif bind_status == 3:
+        reason = "unbind"
+
+    return {
+        "authorized": authorized,
+        "need_reauthorize": not authorized,
+        "reason": reason,
+        "callback_record": {
+            "id": callback_record.id,
+            "open_id": callback_record.open_id,
+            "nick_name": callback_record.nick_name,
+            "avatar": callback_record.avatar,
+            "created_at": callback_record.created_at,
+        }
+        if callback_record
+        else None,
+        "bind_info": bind_info,
+        "token_record": {
+            "id": token_record.id,
+            "open_id": token_record.open_id,
+            "scope": token_record.scope,
+            "status": token_record.status,
+            "error_code": token_record.error_code,
+            "error_message": token_record.error_message,
+            "access_token_expires_at": token_record.access_token_expires_at,
+            "refresh_token_expires_at": token_record.refresh_token_expires_at,
+        }
+        if token_record
+        else None,
+    }
+
+
 def signed_post(path: str, body: dict[str, Any]) -> dict[str, Any]:
     if not DY_SECRET_KEY:
         raise HTTPException(500, "DY_SECRET_KEY is not configured")
@@ -859,6 +929,18 @@ def run_startup_migrations() -> None:
         for column_name, ddl in optional_lead_columns.items():
             if column_name not in lead_columns:
                 conn.exec_driver_sql(ddl)
+        auth_callback_columns = {
+            row[1]
+            for row in conn.exec_driver_sql("PRAGMA table_info(auth_callback_records)").fetchall()
+        }
+        optional_auth_callback_columns = {
+            "open_id": "ALTER TABLE auth_callback_records ADD COLUMN open_id VARCHAR(255)",
+            "nick_name": "ALTER TABLE auth_callback_records ADD COLUMN nick_name VARCHAR(255)",
+            "avatar": "ALTER TABLE auth_callback_records ADD COLUMN avatar TEXT",
+        }
+        for column_name, ddl in optional_auth_callback_columns.items():
+            if column_name not in auth_callback_columns:
+                conn.exec_driver_sql(ddl)
 
 
 def get_configured_auth_payload() -> dict[str, Any]:
@@ -871,17 +953,15 @@ def get_configured_auth_payload() -> dict[str, Any]:
     if not DY_ACCOUNT_NAME:
         raise HTTPException(400, "DY_ACCOUNT_NAME is not configured")
 
-    return {
+    payload = {
         "main_account_id": DY_MAIN_ACCOUNT_ID,
         "account_name": DY_ACCOUNT_NAME,
         "auth_redirect_url": AUTH_REDIRECT_URL,
         "callback_url": f"{PUBLIC_BASE_URL.rstrip('/')}/webhook/douyin",
-        "callback_event": [
-            "im_receive_msg",
-            "im_send_msg",
-            "im_enter_direct_msg",
-        ],
     }
+    if DY_CALLBACK_EVENTS:
+        payload["callback_event"] = DY_CALLBACK_EVENTS
+    return payload
 
 
 def upsert_conversation_summary(
@@ -1130,6 +1210,9 @@ def list_auth_callback_records(db: Session = Depends(get_db)) -> list[dict[str, 
             "auth_code": item.auth_code,
             "state": item.state,
             "error": item.error,
+            "open_id": item.open_id,
+            "nick_name": item.nick_name,
+            "avatar": item.avatar,
             "raw_query": item.raw_query,
             "callback_url": item.callback_url,
             "created_at": item.created_at,
@@ -1157,6 +1240,12 @@ def create_auth_callback_record(
     }
 
 
+@app.post("/douyin/list-bind-info")
+def list_bind_info(body: BindInfoRequest) -> dict[str, Any]:
+    payload = body.model_dump(exclude_none=True)
+    return signed_post("/list_bind_info", payload)
+
+
 @app.get("/auth-token-records")
 def list_auth_token_records(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     records = db.query(AuthTokenRecord).order_by(AuthTokenRecord.id.desc()).all()
@@ -1182,8 +1271,31 @@ def list_auth_token_records(db: Session = Depends(get_db)) -> list[dict[str, Any
 
 @app.get("/auth-status")
 def get_auth_status(db: Session = Depends(get_db)) -> dict[str, Any]:
-    latest = db.query(AuthTokenRecord).order_by(AuthTokenRecord.id.desc()).first()
-    return {"code": 0, "msg": "success", "data": build_auth_status(latest)}
+    latest_callback = db.query(AuthCallbackRecord).order_by(AuthCallbackRecord.id.desc()).first()
+    latest_token = db.query(AuthTokenRecord).order_by(AuthTokenRecord.id.desc()).first()
+
+    bind_item = None
+    if latest_callback and latest_callback.open_id and DY_MAIN_ACCOUNT_ID > 0:
+        try:
+            result = signed_post(
+                "/list_bind_info",
+                {
+                    "main_account_id": DY_MAIN_ACCOUNT_ID,
+                    "page_num": 1,
+                    "page_size": 10,
+                    "name_or_open_id": latest_callback.open_id,
+                },
+            )
+            bind_list = ((result or {}).get("data") or {}).get("bind_list") or []
+            bind_item = next((item for item in bind_list if item.get("open_id") == latest_callback.open_id), None)
+        except Exception:
+            bind_item = None
+
+    return {
+        "code": 0,
+        "msg": "success",
+        "data": build_bind_auth_status(latest_callback, bind_item, latest_token),
+    }
 
 
 @app.get("/dashboard/lead-stats")

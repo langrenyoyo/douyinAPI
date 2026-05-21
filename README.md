@@ -35,6 +35,7 @@
 - `DY_CLIENT_KEY`：抖音开放平台 client_key，用于 code 换 token
 - `DY_CLIENT_SECRET`：抖音开放平台 client_secret，用于 code 换 token
 - `DY_OAUTH_BASE_URL`：抖音 OAuth 域名，默认 `https://open.douyin.com`
+- `DY_CALLBACK_EVENTS`：可选，逗号分隔的回调事件列表；留空时按文档默认接收全部事件
 - `PUBLIC_BASE_URL`：抖音可访问到的公网根地址
 - `AUTH_REDIRECT_URL`：授权成功后的回跳地址
 - `DY_MAIN_ACCOUNT_ID`：抖音主账号 id
@@ -141,6 +142,7 @@ docker compose down
 - `POST /leads/{lead_open_id}/tags`：更新线索标签
 - `POST /quick-replies`：新增快捷回复
 - `POST /auth-callback-records`：保存授权回调结果
+- `POST /douyin/list-bind-info`：查询抖音账号绑定状态
 - `POST /douyin/get-auth-url`：获取授权二维码页面
 - `POST /douyin/get-auth-url/configured`：使用 `.env` 配置直接获取授权二维码页面
 - `POST /douyin/send-msg`：直接转发发送私信
@@ -199,8 +201,9 @@ sha256(SECRET_KEY + body + "-" + timestamp)
 - `GET /api-call-logs`
 
 前端会直接展示返回的 `auth_url`，你可以点开完成授权；授权后点击 `授权后查看回调`，查看最近的 `/events` 回调入库结果。
-现在 `/auth/callback` 页面会自动把 `code / auth_code / state / error / callback_url` 保存到后端，你可以通过 `GET /auth-callback-records` 查看历史授权结果。
-如果同时配置了 `DY_CLIENT_KEY` 和 `DY_CLIENT_SECRET`，系统还会自动尝试用 `code` 兑换 token，并可通过 `GET /auth-status` 判断当前是否需要重新授权。
+根据当前抖音私信文档，`auth_redirect_url` 回跳更关键的是 `open_id / nick_name / avatar`，`/auth/callback` 页面会自动把这些参数保存到后端，你可以通过 `GET /auth-callback-records` 查看历史授权结果。
+`GET /auth-status` 会优先结合回调里的 `open_id` 和 `/douyin/list-bind-info` 的 `bind_status` 来判断当前是否需要重新授权；如果同时配置了 `DY_CLIENT_KEY` 和 `DY_CLIENT_SECRET`，系统也会兼容记录 `code` 兑换 token 的结果。
+如果你没有显式配置 `DY_CALLBACK_EVENTS`，项目会按文档默认行为不传 `callback_event`，从而接收全部回调事件。
 当授权链接出现后，页面会自动轮询最新的回调和接口日志，方便你直接确认授权是否成功。
 
 ## 本地测试 webhook
@@ -222,6 +225,12 @@ python test_webhook.py --secret "your-secret-key"
 
 ```powershell
 python call_local_api.py --path /douyin/get-auth-url --payload sample_get_auth_url_request.json
+```
+
+查询绑定账号：
+
+```powershell
+python call_local_api.py --path /douyin/list-bind-info --payload sample_list_bind_info_request.json
 ```
 
 发送私信：
@@ -253,6 +262,7 @@ python call_local_api.py --path /douyin/download-resource --payload sample_downl
 - `main_account_id`
 - `from_user_id`
 - `to_user_id` / `lead_open_id`
+- `name_or_open_id`
 - `conversation_id`
 - `msg_id`
 - `image_base64`

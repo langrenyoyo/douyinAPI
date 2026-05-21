@@ -243,6 +243,9 @@ function AuthCallbackPage() {
   const state = params.get('state') || hashParams.get('state')
   const authCode = params.get('auth_code') || hashParams.get('auth_code')
   const error = params.get('error') || hashParams.get('error')
+  const openId = params.get('open_id') || hashParams.get('open_id')
+  const nickName = params.get('nick_name') || hashParams.get('nick_name')
+  const avatar = params.get('avatar') || hashParams.get('avatar')
   const rawUrl = window.location.href
   const rawQuery = window.location.search || window.location.hash || ''
   const [saveStatus, setSaveStatus] = useState('idle')
@@ -267,6 +270,9 @@ function AuthCallbackPage() {
             auth_code: authCode,
             state,
             error,
+            open_id: openId,
+            nick_name: nickName,
+            avatar,
             raw_query: rawQuery,
             callback_url: rawUrl,
           }),
@@ -312,7 +318,7 @@ function AuthCallbackPage() {
     return () => {
       cancelled = true
     }
-  }, [authCode, code, error, rawQuery, rawUrl, state])
+  }, [authCode, avatar, code, error, nickName, openId, rawQuery, rawUrl, state])
 
   return (
     <div className="app-shell auth-callback-shell">
@@ -345,6 +351,18 @@ function AuthCallbackPage() {
               <span>error</span>
               <span>{error || '--'}</span>
             </div>
+            <div className="event-item">
+              <span>open_id</span>
+              <span>{openId || '--'}</span>
+            </div>
+            <div className="event-item">
+              <span>nick_name</span>
+              <span>{nickName || '--'}</span>
+            </div>
+            <div className="event-item full">
+              <span>avatar</span>
+              <span>{avatar || '--'}</span>
+            </div>
             <div className="event-item full">
               <span>当前地址</span>
               <span>{rawUrl}</span>
@@ -353,7 +371,7 @@ function AuthCallbackPage() {
         </section>
 
         <section className="banner info">
-          授权成功后，如果抖音带回了 `code`，这里会直接显示。接下来可以用这个 `code` 继续换取令牌或查看后端回调日志。
+          根据当前私信文档，授权回跳的关键结果通常是 `open_id / nick_name / avatar`。如果上游同时返回了 `code`，系统也会额外记录兼容信息。
         </section>
 
         <section className={`banner ${saveStatus === 'error' ? 'warning' : 'info'}`}>
@@ -389,6 +407,18 @@ function AuthCallbackPage() {
                 <span>error</span>
                 <span>{latestRecord.error || '--'}</span>
               </div>
+              <div className="event-item">
+                <span>open_id</span>
+                <span>{latestRecord.open_id || '--'}</span>
+              </div>
+              <div className="event-item">
+                <span>nick_name</span>
+                <span>{latestRecord.nick_name || '--'}</span>
+              </div>
+              <div className="event-item full">
+                <span>avatar</span>
+                <span>{latestRecord.avatar || '--'}</span>
+              </div>
               <div className="event-item full">
                 <span>callback_url</span>
                 <span>{latestRecord.callback_url || '--'}</span>
@@ -417,27 +447,27 @@ function AuthCallbackPage() {
               </div>
               <div className="event-item">
                 <span>open_id</span>
-                <span>{authStatus.token_record?.open_id || '--'}</span>
+                <span>{authStatus.callback_record?.open_id || authStatus.bind_info?.open_id || '--'}</span>
               </div>
               <div className="event-item">
-                <span>scope</span>
-                <span>{authStatus.token_record?.scope || '--'}</span>
+                <span>昵称</span>
+                <span>{authStatus.callback_record?.nick_name || authStatus.bind_info?.account_name || '--'}</span>
+              </div>
+              <div className="event-item">
+                <span>绑定状态</span>
+                <span>{authStatus.bind_info?.bind_status ?? '--'}</span>
+              </div>
+              <div className="event-item">
+                <span>绑定时间</span>
+                <span>{authStatus.bind_info?.bind_time || '--'}</span>
+              </div>
+              <div className="event-item">
+                <span>解绑时间</span>
+                <span>{authStatus.bind_info?.unbind_time || '--'}</span>
               </div>
               <div className="event-item">
                 <span>token状态</span>
                 <span>{authStatus.token_record?.status || '--'}</span>
-              </div>
-              <div className="event-item">
-                <span>access_token过期</span>
-                <span>{authStatus.token_record?.access_token_expires_at || '--'}</span>
-              </div>
-              <div className="event-item">
-                <span>refresh_token过期</span>
-                <span>{authStatus.token_record?.refresh_token_expires_at || '--'}</span>
-              </div>
-              <div className="event-item">
-                <span>错误码</span>
-                <span>{authStatus.token_record?.error_code || '--'}</span>
               </div>
               <div className="event-item full">
                 <span>错误信息</span>

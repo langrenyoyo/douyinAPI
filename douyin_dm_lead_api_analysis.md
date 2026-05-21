@@ -290,3 +290,35 @@
 
 - `conversation_short_id` 和 `server_message_id` 建议按“最近一次有效值”更新。
 - webhook 原始报文建议完整留档，便于排查事件类型变化。
+
+## 10. 当前项目与文档差异
+
+### 10.1 已对齐
+
+- 已对接 `/get_aweme_auth_url`，并传入文档要求的 `main_account_id / account_name / auth_redirect_url / callback_url / callback_event`
+- 已实现 `callback_url` 对应的 webhook 接收，并对私信事件做签名校验、落库、会话/线索沉淀
+- 已对接 `/send_msg`、`/download_resource`、`/upload_image_file`
+- 已新增 `/list_bind_info` 的本地代理接口，用于校验抖音账号绑定状态
+- 已将授权回调页改为优先解析 `open_id / nick_name / avatar`，与文档中的 `auth_redirect_url` 回传方式一致
+- 已将授权状态判断逻辑改为优先基于 `/list_bind_info` 的 `bind_status`
+
+### 10.2 仍未完全覆盖
+
+- 项目还没有把 `/list_bind_info` 的返回结果长期保存为独立的本地“绑定账号表”，当前主要用于运行时查询授权状态
+- 文档中的全部私信场景和值班运营能力没有逐项做成前端页面或本地业务规则，目前实现的是主链路
+- 文档更偏接口说明，项目当前仍然没有完全覆盖所有潜在事件类型和全部运营场景
+
+### 10.3 项目自增能力
+
+- 新增了 `/auth-callback-records`：保存授权回跳参数，便于排查授权过程
+- 新增了 `/auth-token-records`：兼容记录 `code -> token` 的结果，方便调试，但不是当前私信文档主流程必需项
+- 新增了 `/auth-status`：把回调记录和 `/list_bind_info` 结果整合成“是否已授权/是否需重授权”的本地视图
+- 前端增加了授权回调结果页和调试展示页，便于联调和人工确认
+
+### 10.4 当前最关键的认知差异
+
+- 这份文档的授权成功判断，更核心的是：
+  - `auth_redirect_url` 回来时是否带回 `open_id / nick_name / avatar`
+  - `/list_bind_info` 查询时 `bind_status` 是否为成功
+- 而不是标准网页 OAuth 场景下常见的“必须先拿到 `code` 再换 token 才算成功”
+- 因此，项目中保留的 `code -> token` 逻辑应视为兼容能力，不应再作为当前文档下的唯一成功标准
