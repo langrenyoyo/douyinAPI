@@ -215,6 +215,40 @@ textarea {
   color: #38649d;
 }
 
+.auth-result {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.auth-url {
+  word-break: break-all;
+}
+
+.auth-url a {
+  color: #2f60d8;
+}
+
+.auth-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.event-list {
+  display: grid;
+  gap: 10px;
+}
+
+.event-item {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr 2fr 1.4fr;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #f7f9ff;
+  color: #53647f;
+}
+
 .toolbar,
 .table-header,
 .list-toolbar,

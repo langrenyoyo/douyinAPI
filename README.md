@@ -195,6 +195,8 @@ sha256(SECRET_KEY + body + "-" + timestamp)
 
 - `GET /api-call-logs`
 
+前端会直接展示返回的 `auth_url`，你可以点开完成授权；授权后点击 `授权后查看回调`，查看最近的 `/events` 回调入库结果。
+
 ## 本地测试 webhook
 
 先启动服务，再执行：

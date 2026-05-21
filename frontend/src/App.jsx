@@ -248,6 +248,8 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [authTestResult, setAuthTestResult] = useState(null)
   const [authTestLoading, setAuthTestLoading] = useState(false)
+  const [eventLog, setEventLog] = useState([])
+  const [eventLoading, setEventLoading] = useState(false)
 
   useEffect(() => {
     async function loadData() {
@@ -319,6 +321,17 @@ export default function App() {
     }
   }
 
+  async function refreshEventLogs() {
+    setEventLoading(true)
+    try {
+      const res = await fetch('/events')
+      const data = await res.json()
+      setEventLog(Array.isArray(data) ? data.slice(0, 5) : [])
+    } finally {
+      setEventLoading(false)
+    }
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -360,9 +373,43 @@ export default function App() {
         {authTestResult ? (
           <section className={`banner ${authTestResult.ok ? 'info' : 'warning'}`}>
             <strong>抖音接口测试：</strong>
-            <span>
-              {authTestResult.ok ? '成功' : '失败'} / HTTP {authTestResult.status} / {JSON.stringify(authTestResult.data)}
-            </span>
+            <div className="auth-result">
+              <div>
+                {authTestResult.ok ? '成功' : '失败'} / HTTP {authTestResult.status}
+              </div>
+              <div className="auth-url">
+                {authTestResult.data?.data?.auth_url ? (
+                  <a href={authTestResult.data.data.auth_url} target="_blank" rel="noreferrer">
+                    {authTestResult.data.data.auth_url}
+                  </a>
+                ) : (
+                  <span>{JSON.stringify(authTestResult.data)}</span>
+                )}
+              </div>
+              <div className="auth-actions">
+                <button className="chip" onClick={refreshEventLogs} disabled={eventLoading}>
+                  {eventLoading ? '刷新中...' : '授权后查看回调'}
+                </button>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {eventLog.length ? (
+          <section className="table-card">
+            <div className="table-header">
+              <strong>最近回调结果</strong>
+            </div>
+            <div className="event-list">
+              {eventLog.map((item) => (
+                <div key={item.id} className="event-item">
+                  <span>{item.event}</span>
+                  <span>{item.from_user_id || '--'}</span>
+                  <span>{item.conversation_short_id || '--'}</span>
+                  <span>{item.create_time || '--'}</span>
+                </div>
+              ))}
+            </div>
           </section>
         ) : null}
 
