@@ -250,6 +250,7 @@ export default function App() {
   const [authTestLoading, setAuthTestLoading] = useState(false)
   const [eventLog, setEventLog] = useState([])
   const [eventLoading, setEventLoading] = useState(false)
+  const [apiLog, setApiLog] = useState(null)
 
   useEffect(() => {
     async function loadData() {
@@ -332,6 +333,23 @@ export default function App() {
     }
   }
 
+  async function refreshApiLog() {
+    const res = await fetch('/api-call-logs')
+    const data = await res.json()
+    setApiLog(Array.isArray(data) && data.length ? data[0] : null)
+  }
+
+  useEffect(() => {
+    if (!authTestResult?.ok || !authTestResult.data?.data?.auth_url) return undefined
+    refreshEventLogs()
+    refreshApiLog()
+    const timer = setInterval(() => {
+      refreshEventLogs()
+      refreshApiLog()
+    }, 5000)
+    return () => clearInterval(timer)
+  }, [authTestResult])
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -409,6 +427,22 @@ export default function App() {
                   <span>{item.create_time || '--'}</span>
                 </div>
               ))}
+            </div>
+          </section>
+        ) : null}
+
+        {apiLog ? (
+          <section className="table-card">
+            <div className="table-header">
+              <strong>最近接口日志</strong>
+            </div>
+            <div className="event-list">
+              <div className="event-item">
+                <span>{apiLog.api_path}</span>
+                <span>{apiLog.http_status}</span>
+                <span>{apiLog.error_type || '--'}</span>
+                <span>{apiLog.created_at}</span>
+              </div>
             </div>
           </section>
         ) : null}
