@@ -30,9 +30,6 @@ DY_BASE_URL = os.getenv(
 )
 DY_ALLOWED_DRIFT_SECONDS = int(os.getenv("DY_ALLOWED_DRIFT_SECONDS", "300"))
 DY_HTTP_TIMEOUT_SECONDS = int(os.getenv("DY_HTTP_TIMEOUT_SECONDS", "20"))
-AUTO_REPLY_ENABLED = os.getenv("AUTO_REPLY_ENABLED", "false").lower() == "true"
-AUTO_REPLY_MAIN_ACCOUNT_ID = int(os.getenv("AUTO_REPLY_MAIN_ACCOUNT_ID", "0"))
-AUTO_REPLY_TEXT = os.getenv("AUTO_REPLY_TEXT", "您好，已收到您的消息，我们会尽快联系您。")
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "")
 AUTH_REDIRECT_URL = os.getenv("AUTH_REDIRECT_URL", "")
 DY_MAIN_ACCOUNT_ID = int(os.getenv("DY_MAIN_ACCOUNT_ID", "0"))
@@ -624,39 +621,6 @@ def signed_post(path: str, body: dict[str, Any]) -> dict[str, Any]:
         raise
 
 
-def build_auto_reply_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
-    if not AUTO_REPLY_ENABLED or AUTO_REPLY_MAIN_ACCOUNT_ID <= 0:
-        return None
-
-    content = parse_content(payload.get("content"))
-    from_user_id = payload.get("to_user_id")
-    to_user_id = payload.get("from_user_id")
-    conversation_id = content.get("conversation_short_id")
-    msg_id = content.get("server_message_id")
-    event = payload.get("event")
-
-    if not from_user_id or not to_user_id or not conversation_id or not msg_id:
-        return None
-
-    scene = None
-    if event == "im_receive_msg":
-        scene = "im_reply_msg"
-    elif event == "im_enter_direct_msg":
-        scene = "im_enter_direct_msg"
-    else:
-        return None
-
-    return {
-        "main_account_id": AUTO_REPLY_MAIN_ACCOUNT_ID,
-        "from_user_id": from_user_id,
-        "to_user_id": to_user_id,
-        "content": AUTO_REPLY_TEXT,
-        "conversation_id": conversation_id,
-        "msg_id": msg_id,
-        "scene": scene,
-    }
-
-
 def run_startup_migrations() -> None:
     with engine.begin() as conn:
         columns = {
@@ -831,16 +795,6 @@ async def douyin_webhook(
             operator_name="system",
         )
 
-    auto_reply_payload = build_auto_reply_payload(payload)
-    auto_reply_result = None
-    auto_reply_error = None
-    if auto_reply_payload is not None and not is_duplicate:
-        try:
-            auto_reply_result = signed_post("/send_msg", auto_reply_payload)
-        except requests.RequestException as exc:
-            auto_reply_error = f"request_error: {exc}"
-        except Exception as exc:
-            auto_reply_error = f"unexpected_error: {exc}"
     return {
         "code": 0,
         "msg": "success",
@@ -853,9 +807,6 @@ async def douyin_webhook(
             "is_duplicate": is_duplicate,
             "conversation_id": conversation.conversation_short_id if conversation else None,
             "message_id": message.id if message else None,
-            "auto_reply_enabled": AUTO_REPLY_ENABLED,
-            "auto_reply_result": auto_reply_result,
-            "auto_reply_error": auto_reply_error,
         },
     }
 

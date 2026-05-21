@@ -249,6 +249,23 @@ textarea {
   color: #53647f;
 }
 
+.auth-callback-shell {
+  grid-template-columns: 1fr;
+}
+
+.full-width {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.auth-callback-grid {
+  grid-template-columns: 160px 1fr;
+}
+
+.auth-callback-grid .full {
+  grid-column: 1 / -1;
+}
+
 .event-item a {
   color: #2f60d8;
   word-break: break-all;

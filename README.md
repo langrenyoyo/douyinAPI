@@ -32,9 +32,6 @@
 - `DY_BASE_URL`：默认使用测试地址
 - `DY_ALLOWED_DRIFT_SECONDS`：签名时间漂移容忍秒数
 - `DY_HTTP_TIMEOUT_SECONDS`：调用抖音接口的超时秒数
-- `AUTO_REPLY_ENABLED`：是否启用 webhook 自动回复
-- `AUTO_REPLY_MAIN_ACCOUNT_ID`：自动回复使用的主账号 id
-- `AUTO_REPLY_TEXT`：自动回复文案
 - `PUBLIC_BASE_URL`：抖音可访问到的公网根地址
 - `AUTH_REDIRECT_URL`：授权成功后的回跳地址
 - `DY_MAIN_ACCOUNT_ID`：抖音主账号 id
@@ -46,7 +43,6 @@ PowerShell 示例：
 ```powershell
 $env:DY_SECRET_KEY="your-secret-key"
 $env:DY_BASE_URL="https://gmp.bytedanceapi.com/ai_chat_agent_test_api/v1/openapi"
-$env:AUTO_REPLY_ENABLED="false"
 ```
 
 ## 启动
@@ -291,7 +287,7 @@ python call_local_api.py --path /douyin/download-resource --payload sample_downl
 - 会基于 `event + from_user_id + to_user_id + conversation_short_id + server_message_id + create_time` 生成 `event_key`
 - 如果同一个 `event_key` 已处理过，再收到时会标记为重复事件
 - 重复事件仍会记录到 `webhook_events`
-- 但不会重复触发自动回复
+- 但不会重复写入消息与跟进记录
 
 你可以通过 `GET /events` 查看：
 
@@ -333,27 +329,9 @@ python call_local_api.py --path /douyin/download-resource --payload sample_downl
 - 当前已补日期筛选、导出、标签、置顶、未读统计、会话开关等能力
 - 如果前端要完全复刻你给的两个页面，后面还可以继续补自动分配、通知设置、分组、通知策略、权限体系等接口
 
-## 自动回复
-
-如果你想在收到 webhook 后自动回一条消息，可以打开：
-
-```powershell
-$env:AUTO_REPLY_ENABLED="true"
-$env:AUTO_REPLY_MAIN_ACCOUNT_ID="1234"
-$env:AUTO_REPLY_TEXT="您好，已收到您的咨询，我们会尽快回复您。"
-```
-
-当前自动回复规则：
-
-- `im_receive_msg`：按 `im_reply_msg` 回消息
-- `im_enter_direct_msg`：按 `im_enter_direct_msg` 回消息
-
-如果缺少 `conversation_short_id` 或 `server_message_id`，自动回复会跳过。
-
 ## 注意
 
 - 当前 demo 使用 SQLite，适合本地联调，不适合直接上生产。
 - 当前 demo 已补齐私信主链路和常用配套接口，并支持基础 API 调用日志；但还没有进一步做重试、限流、异步任务和生产级日志。
 - webhook 中 `content` 在文档里既像对象也像字符串，代码已兼容两种写法。
-- 自动回复当前是同步执行的，适合演示，不适合高并发生产场景。
 - 当前去重策略基于业务字段生成 `event_key`，适合演示和一般联调；如果上游后续提供更稳定的事件唯一 id，建议切换到上游 id。

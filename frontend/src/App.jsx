@@ -236,7 +236,68 @@ function ConversationPage({ conversations, activeConversation, messages, quickRe
   )
 }
 
+function AuthCallbackPage() {
+  const params = new URLSearchParams(window.location.search)
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, '').replace(/^\?/, ''))
+  const code = params.get('code') || hashParams.get('code')
+  const state = params.get('state') || hashParams.get('state')
+  const authCode = params.get('auth_code') || hashParams.get('auth_code')
+  const error = params.get('error') || hashParams.get('error')
+  const rawUrl = window.location.href
+
+  return (
+    <div className="app-shell auth-callback-shell">
+      <main className="content full-width">
+        <header className="topbar">
+          <div>
+            <small>Douyin CRM</small>
+            <h1>授权回调结果</h1>
+          </div>
+        </header>
+
+        <section className="table-card">
+          <div className="table-header">
+            <strong>回调参数</strong>
+          </div>
+          <div className="event-list auth-callback-grid">
+            <div className="event-item">
+              <span>code</span>
+              <span>{code || '--'}</span>
+            </div>
+            <div className="event-item">
+              <span>auth_code</span>
+              <span>{authCode || '--'}</span>
+            </div>
+            <div className="event-item">
+              <span>state</span>
+              <span>{state || '--'}</span>
+            </div>
+            <div className="event-item">
+              <span>error</span>
+              <span>{error || '--'}</span>
+            </div>
+            <div className="event-item full">
+              <span>当前地址</span>
+              <span>{rawUrl}</span>
+            </div>
+          </div>
+        </section>
+
+        <section className="banner info">
+          授权成功后，如果抖音带回了 `code`，这里会直接显示。接下来可以用这个 `code` 继续换取令牌或查看后端回调日志。
+        </section>
+      </main>
+    </div>
+  )
+}
+
 export default function App() {
+  const isAuthCallbackPage = window.location.pathname === '/auth/callback'
+
+  if (isAuthCallbackPage) {
+    return <AuthCallbackPage />
+  }
+
   const [currentPage, setCurrentPage] = useState('leads')
   const [stats, setStats] = useState({})
   const [leads, setLeads] = useState([])
