@@ -244,6 +244,68 @@ function AuthCallbackPage() {
   const authCode = params.get('auth_code') || hashParams.get('auth_code')
   const error = params.get('error') || hashParams.get('error')
   const rawUrl = window.location.href
+  const rawQuery = window.location.search || window.location.hash || ''
+  const [saveStatus, setSaveStatus] = useState('idle')
+  const [saveMessage, setSaveMessage] = useState('')
+  const [latestRecord, setLatestRecord] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function saveCallbackResult() {
+      setSaveStatus('saving')
+      setSaveMessage('')
+      try {
+        const res = await fetch('/auth-callback-records', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            code,
+            auth_code: authCode,
+            state,
+            error,
+            raw_query: rawQuery,
+            callback_url: rawUrl,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok || data?.code !== 0) {
+          throw new Error(data?.msg || '保存授权回调失败')
+        }
+        if (!cancelled) {
+          setSaveStatus('success')
+          setSaveMessage('授权回调结果已保存')
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setSaveStatus('error')
+          setSaveMessage(err.message || '保存授权回调失败')
+        }
+      }
+    }
+
+    async function loadLatestRecord() {
+      try {
+        const res = await fetch('/auth-callback-records')
+        const data = await res.json()
+        if (!cancelled) {
+          setLatestRecord(Array.isArray(data) && data.length ? data[0] : null)
+        }
+      } catch {
+        if (!cancelled) {
+          setLatestRecord(null)
+        }
+      }
+    }
+
+    saveCallbackResult().finally(loadLatestRecord)
+
+    return () => {
+      cancelled = true
+    }
+  }, [authCode, code, error, rawQuery, rawUrl, state])
 
   return (
     <div className="app-shell auth-callback-shell">
@@ -286,6 +348,47 @@ function AuthCallbackPage() {
         <section className="banner info">
           授权成功后，如果抖音带回了 `code`，这里会直接显示。接下来可以用这个 `code` 继续换取令牌或查看后端回调日志。
         </section>
+
+        <section className={`banner ${saveStatus === 'error' ? 'warning' : 'info'}`}>
+          {saveStatus === 'saving' ? '正在保存授权回调结果...' : null}
+          {saveStatus === 'success' ? saveMessage : null}
+          {saveStatus === 'error' ? saveMessage : null}
+          {saveStatus === 'idle' ? '等待保存授权回调结果' : null}
+        </section>
+
+        {latestRecord ? (
+          <section className="table-card">
+            <div className="table-header">
+              <strong>最近一次授权记录</strong>
+            </div>
+            <div className="event-list auth-callback-grid">
+              <div className="event-item">
+                <span>保存时间</span>
+                <span>{latestRecord.created_at || '--'}</span>
+              </div>
+              <div className="event-item">
+                <span>code</span>
+                <span>{latestRecord.code || '--'}</span>
+              </div>
+              <div className="event-item">
+                <span>auth_code</span>
+                <span>{latestRecord.auth_code || '--'}</span>
+              </div>
+              <div className="event-item">
+                <span>state</span>
+                <span>{latestRecord.state || '--'}</span>
+              </div>
+              <div className="event-item">
+                <span>error</span>
+                <span>{latestRecord.error || '--'}</span>
+              </div>
+              <div className="event-item full">
+                <span>callback_url</span>
+                <span>{latestRecord.callback_url || '--'}</span>
+              </div>
+            </div>
+          </section>
+        ) : null}
       </main>
     </div>
   )

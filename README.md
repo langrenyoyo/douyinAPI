@@ -130,10 +130,12 @@ docker compose down
 - `GET /leads/{lead_open_id}/follow-records`：线索跟进记录
 - `GET /quick-replies`：快捷回复列表
 - `GET /api-call-logs`：查看调用抖音接口的请求/响应日志
+- `GET /auth-callback-records`：查看历史授权回调记录
 - `POST /leads/{lead_open_id}/assign`：分配线索
 - `POST /leads/{lead_open_id}/follow`：记录线索跟进
 - `POST /leads/{lead_open_id}/tags`：更新线索标签
 - `POST /quick-replies`：新增快捷回复
+- `POST /auth-callback-records`：保存授权回调结果
 - `POST /douyin/get-auth-url`：获取授权二维码页面
 - `POST /douyin/get-auth-url/configured`：使用 `.env` 配置直接获取授权二维码页面
 - `POST /douyin/send-msg`：直接转发发送私信
@@ -192,6 +194,7 @@ sha256(SECRET_KEY + body + "-" + timestamp)
 - `GET /api-call-logs`
 
 前端会直接展示返回的 `auth_url`，你可以点开完成授权；授权后点击 `授权后查看回调`，查看最近的 `/events` 回调入库结果。
+现在 `/auth/callback` 页面会自动把 `code / auth_code / state / error / callback_url` 保存到后端，你可以通过 `GET /auth-callback-records` 查看历史授权结果。
 当授权链接出现后，页面会自动轮询最新的回调和接口日志，方便你直接确认授权是否成功。
 
 ## 本地测试 webhook

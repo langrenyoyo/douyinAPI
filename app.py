@@ -160,6 +160,19 @@ class QuickReply(Base):
     created_at = Column(String(64), nullable=False)
 
 
+class AuthCallbackRecord(Base):
+    __tablename__ = "auth_callback_records"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(Text, nullable=True)
+    auth_code = Column(Text, nullable=True)
+    state = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    raw_query = Column(Text, nullable=True)
+    callback_url = Column(Text, nullable=False)
+    created_at = Column(String(64), nullable=False)
+
+
 class SendMsgRequest(BaseModel):
     main_account_id: int
     from_user_id: str
@@ -229,6 +242,15 @@ class ConversationSendMessageRequest(BaseModel):
     content: str | None = None
     image_id: str | None = None
     scene: str = "im_reply_msg"
+
+
+class AuthCallbackSaveRequest(BaseModel):
+    code: str | None = None
+    auth_code: str | None = None
+    state: str | None = None
+    error: str | None = None
+    raw_query: str | None = None
+    callback_url: str
 
 
 class UpstreamApiError(Exception):
@@ -537,6 +559,24 @@ def persist_api_call_log(
     session.add(log)
     session.flush()
     return log
+
+
+def persist_auth_callback_record(
+    session: Session,
+    body: AuthCallbackSaveRequest,
+) -> AuthCallbackRecord:
+    record = AuthCallbackRecord(
+        code=body.code,
+        auth_code=body.auth_code,
+        state=body.state,
+        error=body.error,
+        raw_query=body.raw_query,
+        callback_url=body.callback_url,
+        created_at=now_iso(),
+    )
+    session.add(record)
+    session.flush()
+    return record
 
 
 def signed_post(path: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -910,6 +950,33 @@ def list_api_call_logs(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
         }
         for item in logs
     ]
+
+
+@app.get("/auth-callback-records")
+def list_auth_callback_records(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    records = db.query(AuthCallbackRecord).order_by(AuthCallbackRecord.id.desc()).all()
+    return [
+        {
+            "id": item.id,
+            "code": item.code,
+            "auth_code": item.auth_code,
+            "state": item.state,
+            "error": item.error,
+            "raw_query": item.raw_query,
+            "callback_url": item.callback_url,
+            "created_at": item.created_at,
+        }
+        for item in records
+    ]
+
+
+@app.post("/auth-callback-records")
+def create_auth_callback_record(
+    body: AuthCallbackSaveRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    record = persist_auth_callback_record(db, body)
+    return {"code": 0, "msg": "success", "data": {"id": record.id}}
 
 
 @app.get("/dashboard/lead-stats")

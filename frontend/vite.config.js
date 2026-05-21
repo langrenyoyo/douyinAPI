@@ -13,6 +13,7 @@ export default defineConfig({
       '/quick-replies': 'http://127.0.0.1:8081',
       '/events': 'http://127.0.0.1:8081',
       '/api-call-logs': 'http://127.0.0.1:8081',
+      '/auth-callback-records': 'http://127.0.0.1:8081',
       '/douyin': 'http://127.0.0.1:8081',
     },
   },
