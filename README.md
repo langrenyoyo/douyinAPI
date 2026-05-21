@@ -92,6 +92,8 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
+如果服务器拉包慢或超时，后端镜像已经默认使用清华镜像源和更长超时重试。
+
 启动后访问：
 
 - 前端：`http://服务器IP:8010`
