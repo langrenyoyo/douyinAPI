@@ -248,6 +248,7 @@ function AuthCallbackPage() {
   const [saveStatus, setSaveStatus] = useState('idle')
   const [saveMessage, setSaveMessage] = useState('')
   const [latestRecord, setLatestRecord] = useState(null)
+  const [authStatus, setAuthStatus] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -288,14 +289,20 @@ function AuthCallbackPage() {
 
     async function loadLatestRecord() {
       try {
-        const res = await fetch('/auth-callback-records')
-        const data = await res.json()
+        const [recordRes, statusRes] = await Promise.all([
+          fetch('/auth-callback-records'),
+          fetch('/auth-status'),
+        ])
+        const data = await recordRes.json()
+        const statusData = await statusRes.json()
         if (!cancelled) {
           setLatestRecord(Array.isArray(data) && data.length ? data[0] : null)
+          setAuthStatus(statusData?.data || null)
         }
       } catch {
         if (!cancelled) {
           setLatestRecord(null)
+          setAuthStatus(null)
         }
       }
     }
@@ -385,6 +392,56 @@ function AuthCallbackPage() {
               <div className="event-item full">
                 <span>callback_url</span>
                 <span>{latestRecord.callback_url || '--'}</span>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {authStatus ? (
+          <section className="table-card">
+            <div className="table-header">
+              <strong>当前授权状态</strong>
+            </div>
+            <div className="event-list auth-callback-grid">
+              <div className="event-item">
+                <span>是否已授权</span>
+                <span>{authStatus.authorized ? '是' : '否'}</span>
+              </div>
+              <div className="event-item">
+                <span>是否需重授权</span>
+                <span>{authStatus.need_reauthorize ? '是' : '否'}</span>
+              </div>
+              <div className="event-item">
+                <span>原因</span>
+                <span>{authStatus.reason || '--'}</span>
+              </div>
+              <div className="event-item">
+                <span>open_id</span>
+                <span>{authStatus.token_record?.open_id || '--'}</span>
+              </div>
+              <div className="event-item">
+                <span>scope</span>
+                <span>{authStatus.token_record?.scope || '--'}</span>
+              </div>
+              <div className="event-item">
+                <span>token状态</span>
+                <span>{authStatus.token_record?.status || '--'}</span>
+              </div>
+              <div className="event-item">
+                <span>access_token过期</span>
+                <span>{authStatus.token_record?.access_token_expires_at || '--'}</span>
+              </div>
+              <div className="event-item">
+                <span>refresh_token过期</span>
+                <span>{authStatus.token_record?.refresh_token_expires_at || '--'}</span>
+              </div>
+              <div className="event-item">
+                <span>错误码</span>
+                <span>{authStatus.token_record?.error_code || '--'}</span>
+              </div>
+              <div className="event-item full">
+                <span>错误信息</span>
+                <span>{authStatus.token_record?.error_message || '--'}</span>
               </div>
             </div>
           </section>

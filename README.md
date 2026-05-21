@@ -32,6 +32,9 @@
 - `DY_BASE_URL`：默认使用测试地址
 - `DY_ALLOWED_DRIFT_SECONDS`：签名时间漂移容忍秒数
 - `DY_HTTP_TIMEOUT_SECONDS`：调用抖音接口的超时秒数
+- `DY_CLIENT_KEY`：抖音开放平台 client_key，用于 code 换 token
+- `DY_CLIENT_SECRET`：抖音开放平台 client_secret，用于 code 换 token
+- `DY_OAUTH_BASE_URL`：抖音 OAuth 域名，默认 `https://open.douyin.com`
 - `PUBLIC_BASE_URL`：抖音可访问到的公网根地址
 - `AUTH_REDIRECT_URL`：授权成功后的回跳地址
 - `DY_MAIN_ACCOUNT_ID`：抖音主账号 id
@@ -131,6 +134,8 @@ docker compose down
 - `GET /quick-replies`：快捷回复列表
 - `GET /api-call-logs`：查看调用抖音接口的请求/响应日志
 - `GET /auth-callback-records`：查看历史授权回调记录
+- `GET /auth-token-records`：查看历史 token 兑换记录
+- `GET /auth-status`：查看当前是否需要重新授权
 - `POST /leads/{lead_open_id}/assign`：分配线索
 - `POST /leads/{lead_open_id}/follow`：记录线索跟进
 - `POST /leads/{lead_open_id}/tags`：更新线索标签
@@ -195,6 +200,7 @@ sha256(SECRET_KEY + body + "-" + timestamp)
 
 前端会直接展示返回的 `auth_url`，你可以点开完成授权；授权后点击 `授权后查看回调`，查看最近的 `/events` 回调入库结果。
 现在 `/auth/callback` 页面会自动把 `code / auth_code / state / error / callback_url` 保存到后端，你可以通过 `GET /auth-callback-records` 查看历史授权结果。
+如果同时配置了 `DY_CLIENT_KEY` 和 `DY_CLIENT_SECRET`，系统还会自动尝试用 `code` 兑换 token，并可通过 `GET /auth-status` 判断当前是否需要重新授权。
 当授权链接出现后，页面会自动轮询最新的回调和接口日志，方便你直接确认授权是否成功。
 
 ## 本地测试 webhook

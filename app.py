@@ -30,6 +30,9 @@ DY_BASE_URL = os.getenv(
 )
 DY_ALLOWED_DRIFT_SECONDS = int(os.getenv("DY_ALLOWED_DRIFT_SECONDS", "300"))
 DY_HTTP_TIMEOUT_SECONDS = int(os.getenv("DY_HTTP_TIMEOUT_SECONDS", "20"))
+DY_CLIENT_KEY = os.getenv("DY_CLIENT_KEY", "")
+DY_CLIENT_SECRET = os.getenv("DY_CLIENT_SECRET", "")
+DY_OAUTH_BASE_URL = os.getenv("DY_OAUTH_BASE_URL", "https://open.douyin.com")
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "")
 AUTH_REDIRECT_URL = os.getenv("AUTH_REDIRECT_URL", "")
 DY_MAIN_ACCOUNT_ID = int(os.getenv("DY_MAIN_ACCOUNT_ID", "0"))
@@ -173,6 +176,27 @@ class AuthCallbackRecord(Base):
     created_at = Column(String(64), nullable=False)
 
 
+class AuthTokenRecord(Base):
+    __tablename__ = "auth_token_records"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    callback_record_id = Column(Integer, nullable=True)
+    open_id = Column(String(255), nullable=True)
+    access_token = Column(Text, nullable=True)
+    refresh_token = Column(Text, nullable=True)
+    scope = Column(Text, nullable=True)
+    expires_in = Column(Integer, nullable=True)
+    refresh_expires_in = Column(Integer, nullable=True)
+    access_token_expires_at = Column(String(64), nullable=True)
+    refresh_token_expires_at = Column(String(64), nullable=True)
+    status = Column(String(64), nullable=False)
+    error_code = Column(String(64), nullable=True)
+    error_message = Column(Text, nullable=True)
+    raw_response = Column(Text, nullable=True)
+    created_at = Column(String(64), nullable=False)
+    updated_at = Column(String(64), nullable=False)
+
+
 class SendMsgRequest(BaseModel):
     main_account_id: int
     from_user_id: str
@@ -273,6 +297,12 @@ class UpstreamApiError(Exception):
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def future_iso(seconds: int | None) -> str | None:
+    if seconds is None:
+        return None
+    return datetime.fromtimestamp(time.time() + seconds, tz=timezone.utc).isoformat()
 
 
 def parse_dt_millis(value: str | None) -> int | None:
@@ -577,6 +607,144 @@ def persist_auth_callback_record(
     session.add(record)
     session.flush()
     return record
+
+
+def persist_auth_token_record(
+    session: Session,
+    *,
+    callback_record_id: int | None,
+    token_data: dict[str, Any] | None,
+    raw_response: dict[str, Any],
+    status: str,
+    error_code: str | None = None,
+    error_message: str | None = None,
+) -> AuthTokenRecord:
+    token_data = token_data or {}
+    expires_in = int(token_data["expires_in"]) if str(token_data.get("expires_in") or "").isdigit() else None
+    refresh_expires_in = (
+        int(token_data["refresh_expires_in"])
+        if str(token_data.get("refresh_expires_in") or "").isdigit()
+        else None
+    )
+    record = AuthTokenRecord(
+        callback_record_id=callback_record_id,
+        open_id=token_data.get("open_id"),
+        access_token=token_data.get("access_token"),
+        refresh_token=token_data.get("refresh_token"),
+        scope=token_data.get("scope"),
+        expires_in=expires_in,
+        refresh_expires_in=refresh_expires_in,
+        access_token_expires_at=future_iso(expires_in),
+        refresh_token_expires_at=future_iso(refresh_expires_in),
+        status=status,
+        error_code=error_code,
+        error_message=error_message,
+        raw_response=json.dumps(raw_response, ensure_ascii=False),
+        created_at=now_iso(),
+        updated_at=now_iso(),
+    )
+    session.add(record)
+    session.flush()
+    return record
+
+
+def call_oauth_token_api(path: str, form_data: dict[str, Any]) -> dict[str, Any]:
+    resp = requests.post(
+        f"{DY_OAUTH_BASE_URL.rstrip('/')}{path}",
+        data=form_data,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=DY_HTTP_TIMEOUT_SECONDS,
+    )
+    response_text = resp.text
+    with db_session() as session:
+        persist_api_call_log(
+            session=session,
+            path=path,
+            request_body=json.dumps(form_data, ensure_ascii=False),
+            request_timestamp=str(int(time.time())),
+            http_status=resp.status_code,
+            response_body=response_text,
+        )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def exchange_code_for_access_token(code: str, callback_record_id: int | None = None) -> AuthTokenRecord:
+    if not DY_CLIENT_KEY:
+        raise HTTPException(400, "DY_CLIENT_KEY is not configured")
+    if not DY_CLIENT_SECRET:
+        raise HTTPException(400, "DY_CLIENT_SECRET is not configured")
+
+    response = call_oauth_token_api(
+        "/oauth/access_token/",
+        {
+            "client_key": DY_CLIENT_KEY,
+            "client_secret": DY_CLIENT_SECRET,
+            "code": code,
+            "grant_type": "authorization_code",
+        },
+    )
+    data = response.get("data") if isinstance(response, dict) else None
+    error_code = str((data or {}).get("error_code") or "")
+    message = response.get("message") if isinstance(response, dict) else ""
+    status = "success" if error_code in {"", "0"} else "error"
+
+    with db_session() as session:
+        return persist_auth_token_record(
+            session,
+            callback_record_id=callback_record_id,
+            token_data=data,
+            raw_response=response,
+            status=status,
+            error_code=error_code or None,
+            error_message=message or (data or {}).get("description"),
+        )
+
+
+def build_auth_status(record: AuthTokenRecord | None) -> dict[str, Any]:
+    if record is None:
+        return {
+            "authorized": False,
+            "need_reauthorize": True,
+            "reason": "no_token_record",
+            "token_record": None,
+        }
+
+    refresh_expired = False
+    if record.refresh_token_expires_at:
+        try:
+            refresh_expired = datetime.fromisoformat(record.refresh_token_expires_at) <= datetime.now(timezone.utc)
+        except ValueError:
+            refresh_expired = False
+
+    authorized = record.status == "success" and bool(record.refresh_token) and not refresh_expired
+    reason = "ok"
+    if record.status != "success":
+        reason = "token_exchange_failed"
+    elif not record.refresh_token:
+        reason = "refresh_token_missing"
+    elif refresh_expired:
+        reason = "refresh_token_expired"
+
+    return {
+        "authorized": authorized,
+        "need_reauthorize": not authorized,
+        "reason": reason,
+        "token_record": {
+            "id": record.id,
+            "open_id": record.open_id,
+            "scope": record.scope,
+            "status": record.status,
+            "error_code": record.error_code,
+            "error_message": record.error_message,
+            "expires_in": record.expires_in,
+            "refresh_expires_in": record.refresh_expires_in,
+            "access_token_expires_at": record.access_token_expires_at,
+            "refresh_token_expires_at": record.refresh_token_expires_at,
+            "created_at": record.created_at,
+            "updated_at": record.updated_at,
+        },
+    }
 
 
 def signed_post(path: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -976,7 +1144,46 @@ def create_auth_callback_record(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     record = persist_auth_callback_record(db, body)
-    return {"code": 0, "msg": "success", "data": {"id": record.id}}
+    token_record = None
+    if body.code:
+        token_record = exchange_code_for_access_token(body.code, callback_record_id=record.id)
+    return {
+        "code": 0,
+        "msg": "success",
+        "data": {
+            "id": record.id,
+            "token_record_id": token_record.id if token_record else None,
+        },
+    }
+
+
+@app.get("/auth-token-records")
+def list_auth_token_records(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    records = db.query(AuthTokenRecord).order_by(AuthTokenRecord.id.desc()).all()
+    return [
+        {
+            "id": item.id,
+            "callback_record_id": item.callback_record_id,
+            "open_id": item.open_id,
+            "scope": item.scope,
+            "status": item.status,
+            "error_code": item.error_code,
+            "error_message": item.error_message,
+            "expires_in": item.expires_in,
+            "refresh_expires_in": item.refresh_expires_in,
+            "access_token_expires_at": item.access_token_expires_at,
+            "refresh_token_expires_at": item.refresh_token_expires_at,
+            "created_at": item.created_at,
+            "updated_at": item.updated_at,
+        }
+        for item in records
+    ]
+
+
+@app.get("/auth-status")
+def get_auth_status(db: Session = Depends(get_db)) -> dict[str, Any]:
+    latest = db.query(AuthTokenRecord).order_by(AuthTokenRecord.id.desc()).first()
+    return {"code": 0, "msg": "success", "data": build_auth_status(latest)}
 
 
 @app.get("/dashboard/lead-stats")
