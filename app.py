@@ -1,3 +1,4 @@
+import hmac
 import hashlib
 import json
 import os
@@ -361,8 +362,8 @@ def get_db():
         yield session
 
 
-def verify_signature(
-    body: bytes,
+async def verify_signature(
+    request: Request,
     ts_str: str = Header(..., alias="X-Auth-Timestamp"),
     signature: str = Header(..., alias="Authorization"),
 ) -> None:
@@ -378,9 +379,10 @@ def verify_signature(
     if abs(now_ts - ts) > DY_ALLOWED_DRIFT_SECONDS:
         raise HTTPException(401, "Request expired")
 
+    body = await request.body()
     sign_str = body.decode("utf-8") + "-" + ts_str
     expect = hashlib.sha256((DY_SECRET_KEY + sign_str).encode("utf-8")).hexdigest()
-    if not hashlib.compare_digest(expect, signature):
+    if not hmac.compare_digest(expect, signature):
         raise HTTPException(401, "Signature mismatch")
 
 
