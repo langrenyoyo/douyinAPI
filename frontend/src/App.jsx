@@ -733,6 +733,14 @@ function AuthStatusCard({ authStatus, loading }) {
           <span>绑定时间</span>
           <strong>{authStatus.bind_info?.bind_time || '--'}</strong>
         </div>
+        <div className="auth-status-item full-span">
+          <span>事件回调链接</span>
+          <strong>{authStatus.configured_callback_url || '--'}</strong>
+        </div>
+        <div className="auth-status-item full-span">
+          <span>授权返回链接</span>
+          <strong>{authStatus.configured_auth_redirect_url || '--'}</strong>
+        </div>
       </div>
     </section>
   )

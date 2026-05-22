@@ -1339,6 +1339,8 @@ def build_bind_auth_status(
         "authorized": authorized,
         "need_reauthorize": not authorized,
         "reason": reason,
+        "configured_callback_url": f"{PUBLIC_BASE_URL.rstrip('/')}/webhook/douyin" if PUBLIC_BASE_URL else "",
+        "configured_auth_redirect_url": AUTH_REDIRECT_URL,
         "callback_record": {
             "id": callback_record.id,
             "open_id": callback_record.open_id,
