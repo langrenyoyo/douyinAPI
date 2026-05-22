@@ -17,6 +17,7 @@ export default defineConfig({
       '/auth-token-records': 'http://127.0.0.1:8081',
       '/auth-status': 'http://127.0.0.1:8081',
       '/douyin': 'http://127.0.0.1:8081',
+      '/aigc': 'http://127.0.0.1:8081',
     },
   },
 })

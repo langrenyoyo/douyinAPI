@@ -6,6 +6,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlencode
 
 import requests
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -43,6 +44,35 @@ PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "")
 AUTH_REDIRECT_URL = os.getenv("AUTH_REDIRECT_URL", "")
 DY_MAIN_ACCOUNT_ID = int(os.getenv("DY_MAIN_ACCOUNT_ID", "0"))
 DY_ACCOUNT_NAME = os.getenv("DY_ACCOUNT_NAME", "")
+AIGC_BASE_URL = os.getenv("AIGC_BASE_URL", "").rstrip("/")
+AIGC_API_TOKEN = os.getenv("AIGC_API_TOKEN", "")
+AIGC_AUTH_HEADER = os.getenv("AIGC_AUTH_HEADER", "Access-Token")
+AIGC_AUTH_PREFIX = os.getenv("AIGC_AUTH_PREFIX", "")
+AIGC_UPLOAD_ELEMENT_PATH = os.getenv("AIGC_UPLOAD_ELEMENT_PATH", "/open_api/v3.0/aic/element/upload/")
+AIGC_CREATE_TASK_PATH = os.getenv("AIGC_CREATE_TASK_PATH", "/open_api/v3.0/aic/video_mixcut/create/")
+AIGC_QUERY_TASK_PATH = os.getenv("AIGC_QUERY_TASK_PATH", "/video_clip/tasks/{task_id}")
+AIGC_HTTP_TIMEOUT_SECONDS = int(os.getenv("AIGC_HTTP_TIMEOUT_SECONDS", "60"))
+AIGC_MOCK_ENABLED = os.getenv("AIGC_MOCK_ENABLED", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+REVIEW_BASE_URL = os.getenv("REVIEW_BASE_URL", "https://api.oceanengine.com").rstrip("/")
+REVIEW_ACCESS_TOKEN = os.getenv("REVIEW_ACCESS_TOKEN", "")
+REVIEW_AUTH_HEADER = os.getenv("REVIEW_AUTH_HEADER", "Access-Token")
+REVIEW_AUTH_PREFIX = os.getenv("REVIEW_AUTH_PREFIX", "")
+REVIEW_SUGGESTIONS_PATH = os.getenv("REVIEW_SUGGESTIONS_PATH", "/open_api/v3.0/reject_material/ai_repair/get/")
+REVIEW_CROSS_ACCOUNT_PATH = os.getenv("REVIEW_CROSS_ACCOUNT_PATH", "/open_api/v3.0/reject_material/ai_repair/cross_account/get/")
+REVIEW_ADOPT_CREATE_PATH = os.getenv("REVIEW_ADOPT_CREATE_PATH", "/open_api/v3.0/reject_material/ai_repair/adopt_task/create/")
+REVIEW_ADOPT_RESULT_PATH = os.getenv("REVIEW_ADOPT_RESULT_PATH", "/open_api/v3.0/reject_material/ai_repair/adopt_task/get/")
+REVIEW_HTTP_TIMEOUT_SECONDS = int(os.getenv("REVIEW_HTTP_TIMEOUT_SECONDS", "60"))
+REVIEW_MOCK_ENABLED = os.getenv("REVIEW_MOCK_ENABLED", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 engine = create_engine(DB_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -206,6 +236,31 @@ class AuthTokenRecord(Base):
     updated_at = Column(String(64), nullable=False)
 
 
+class AigcVideoTask(Base):
+    __tablename__ = "aigc_video_tasks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(String(128), nullable=False, unique=True, index=True)
+    task_type = Column(String(64), nullable=False)
+    title = Column(String(255), nullable=True)
+    prompt = Column(Text, nullable=True)
+    script = Column(Text, nullable=True)
+    product_name = Column(String(255), nullable=True)
+    selling_points = Column(Text, nullable=True)
+    material_urls = Column(Text, nullable=True)
+    image_urls = Column(Text, nullable=True)
+    status = Column(String(64), nullable=False)
+    progress = Column(Integer, nullable=False, default=0)
+    request_body = Column(Text, nullable=True)
+    response_body = Column(Text, nullable=True)
+    result_video_url = Column(Text, nullable=True)
+    result_cover_url = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    source = Column(String(32), nullable=False, default="mock")
+    created_at = Column(String(64), nullable=False)
+    updated_at = Column(String(64), nullable=False)
+
+
 class SendMsgRequest(BaseModel):
     main_account_id: int
     from_user_id: str
@@ -248,6 +303,37 @@ class DownloadResourceRequest(BaseModel):
     conversation_id: str
     msg_id: str
     resource_type: str
+
+
+class AigcVideoTaskCreateRequest(BaseModel):
+    account_id: int | None = None
+    account_type: str | None = None
+    task_type: str = Field(default="video_edit", description="video_edit / image_to_video")
+    title: str | None = None
+    prompt: str | None = None
+    script: str | None = None
+    product_name: str | None = None
+    selling_points: list[str] = Field(default_factory=list)
+    benefit_points: list[str] = Field(default_factory=list)
+    video_element_ids: list[int] = Field(default_factory=list)
+    material_urls: list[str] = Field(default_factory=list)
+    image_urls: list[str] = Field(default_factory=list)
+    count: int = 1
+    task_name: str | None = None
+    is_auto_save_all_result: bool = False
+    gen_element: dict[str, Any] = Field(default_factory=dict)
+    subtitle_style: dict[str, Any] = Field(default_factory=dict)
+    render_option: dict[str, Any] = Field(default_factory=dict)
+    audio_option: dict[str, Any] = Field(default_factory=dict)
+    extra: dict[str, Any] = Field(default_factory=dict)
+
+
+class AigcPassthroughRequest(BaseModel):
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReviewPassthroughRequest(BaseModel):
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class LeadAssignRequest(BaseModel):
@@ -671,6 +757,465 @@ def persist_auth_token_record(
     return record
 
 
+def serialize_aigc_task(task: AigcVideoTask) -> dict[str, Any]:
+    return {
+        "id": task.id,
+        "task_id": task.task_id,
+        "task_type": task.task_type,
+        "title": task.title,
+        "prompt": task.prompt,
+        "script": task.script,
+        "product_name": task.product_name,
+        "selling_points": json.loads(task.selling_points) if task.selling_points else [],
+        "material_urls": json.loads(task.material_urls) if task.material_urls else [],
+        "image_urls": json.loads(task.image_urls) if task.image_urls else [],
+        "status": task.status,
+        "progress": task.progress,
+        "result_video_url": task.result_video_url,
+        "result_cover_url": task.result_cover_url,
+        "error_message": task.error_message,
+        "source": task.source,
+        "response_body": json.loads(task.response_body) if task.response_body else None,
+        "created_at": task.created_at,
+        "updated_at": task.updated_at,
+    }
+
+
+def persist_aigc_video_task(
+    session: Session,
+    *,
+    task_id: str,
+    task_type: str,
+    title: str | None,
+    prompt: str | None,
+    script: str | None,
+    product_name: str | None,
+    selling_points: list[str],
+    material_urls: list[str],
+    image_urls: list[str],
+    request_body: dict[str, Any],
+    status: str,
+    progress: int,
+    response_body: dict[str, Any] | None,
+    result_video_url: str | None,
+    result_cover_url: str | None,
+    error_message: str | None,
+    source: str,
+) -> AigcVideoTask:
+    now = now_iso()
+    task = (
+        session.query(AigcVideoTask)
+        .filter(AigcVideoTask.task_id == task_id)
+        .one_or_none()
+    )
+    if task is None:
+        task = AigcVideoTask(
+            task_id=task_id,
+            task_type=task_type,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(task)
+
+    task.task_type = task_type
+    task.title = title
+    task.prompt = prompt
+    task.script = script
+    task.product_name = product_name
+    task.selling_points = json.dumps(selling_points, ensure_ascii=False)
+    task.material_urls = json.dumps(material_urls, ensure_ascii=False)
+    task.image_urls = json.dumps(image_urls, ensure_ascii=False)
+    task.status = status
+    task.progress = progress
+    task.request_body = json.dumps(request_body, ensure_ascii=False)
+    task.response_body = json.dumps(response_body, ensure_ascii=False) if response_body is not None else None
+    task.result_video_url = result_video_url
+    task.result_cover_url = result_cover_url
+    task.error_message = error_message
+    task.source = source
+    task.updated_at = now
+    session.flush()
+    return task
+
+
+def build_aigc_payload(body: AigcVideoTaskCreateRequest) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "account_id": body.account_id,
+        "account_type": body.account_type,
+        "product_info": {
+            "product_name": body.product_name,
+        },
+        "product_selling_points": body.selling_points,
+        "benefit_points": body.benefit_points,
+        "video_element_ids": body.video_element_ids,
+        "count": body.count,
+        "task_name": body.task_name,
+        "is_auto_save_all_result": body.is_auto_save_all_result,
+    }
+
+    if body.gen_element:
+        payload["gen_element"] = body.gen_element
+    if body.subtitle_style:
+        payload["subtitle_style"] = body.subtitle_style
+    if body.render_option:
+        payload["render_option"] = body.render_option
+    if body.audio_option:
+        payload["audio_option"] = body.audio_option
+
+    if body.prompt or body.script or body.material_urls or body.image_urls or body.extra:
+        payload["extra"] = {
+            "task_type": body.task_type,
+            "title": body.title,
+            "prompt": body.prompt,
+            "script": body.script,
+            "material_urls": body.material_urls,
+            "image_urls": body.image_urls,
+            **body.extra,
+        }
+
+    return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
+
+
+def make_mock_aigc_response(task_id: str, body: AigcVideoTaskCreateRequest) -> dict[str, Any]:
+    suffix = task_id[-6:]
+    status = "succeeded"
+    return {
+        "code": 0,
+        "msg": "success",
+        "data": {
+            "task_id": task_id,
+            "status": status,
+            "progress": 100,
+            "task_type": body.task_type,
+            "video_url": f"https://mock.misanduo.local/videos/{suffix}.mp4",
+            "cover_url": f"https://mock.misanduo.local/covers/{suffix}.jpg",
+            "summary": {
+                "title": body.title or "未命名视频任务",
+                "product_name": body.product_name or "未填写商品",
+                "material_count": len(body.material_urls),
+                "image_count": len(body.image_urls),
+            },
+        },
+    }
+
+
+def create_aigc_task_via_upstream(payload: dict[str, Any]) -> dict[str, Any]:
+    if not AIGC_BASE_URL:
+        raise HTTPException(400, "AIGC_BASE_URL is not configured")
+    if not AIGC_API_TOKEN:
+        raise HTTPException(400, "AIGC_API_TOKEN is not configured")
+
+    request_timestamp = str(int(time.time()))
+    url = f"{AIGC_BASE_URL}{AIGC_CREATE_TASK_PATH}"
+    resp = None
+    try:
+        resp = requests.post(
+            url,
+            json=payload,
+            headers=build_aigc_headers(),
+            timeout=AIGC_HTTP_TIMEOUT_SECONDS,
+        )
+        response_text = resp.text
+        with db_session() as session:
+            persist_api_call_log(
+                session=session,
+                path=f"AIGC {AIGC_CREATE_TASK_PATH}",
+                request_body=json.dumps(payload, ensure_ascii=False),
+                request_timestamp=request_timestamp,
+                http_status=resp.status_code,
+                response_body=response_text,
+            )
+        resp.raise_for_status()
+        return resp.json()
+    except requests.RequestException as exc:
+        response_text = resp.text if resp is not None else None
+        status_code = resp.status_code if resp is not None else None
+        with db_session() as session:
+            persist_api_call_log(
+                session=session,
+                path=f"AIGC {AIGC_CREATE_TASK_PATH}",
+                request_body=json.dumps(payload, ensure_ascii=False),
+                request_timestamp=request_timestamp,
+                http_status=status_code,
+                response_body=response_text,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+        raise UpstreamApiError(
+            "AIGC upstream request failed",
+            status_code=502,
+            upstream_status=status_code,
+            response_text=response_text,
+            error_type=type(exc).__name__,
+        ) from exc
+
+
+def query_aigc_task_via_upstream(task_id: str) -> dict[str, Any]:
+    if not AIGC_BASE_URL:
+        raise HTTPException(400, "AIGC_BASE_URL is not configured")
+    if not AIGC_API_TOKEN:
+        raise HTTPException(400, "AIGC_API_TOKEN is not configured")
+
+    path = AIGC_QUERY_TASK_PATH.format(task_id=task_id)
+    request_timestamp = str(int(time.time()))
+    url = f"{AIGC_BASE_URL}{path}"
+    resp = None
+    try:
+        resp = requests.get(
+            url,
+            headers=build_aigc_headers(include_content_type=False),
+            timeout=AIGC_HTTP_TIMEOUT_SECONDS,
+        )
+        response_text = resp.text
+        with db_session() as session:
+            persist_api_call_log(
+                session=session,
+                path=f"AIGC {path}",
+                request_body="",
+                request_timestamp=request_timestamp,
+                http_status=resp.status_code,
+                response_body=response_text,
+            )
+        resp.raise_for_status()
+        return resp.json()
+    except requests.RequestException as exc:
+        response_text = resp.text if resp is not None else None
+        status_code = resp.status_code if resp is not None else None
+        with db_session() as session:
+            persist_api_call_log(
+                session=session,
+                path=f"AIGC {path}",
+                request_body="",
+                request_timestamp=request_timestamp,
+                http_status=status_code,
+                response_body=response_text,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+        raise UpstreamApiError(
+            "AIGC task query failed",
+            status_code=502,
+            upstream_status=status_code,
+            response_text=response_text,
+            error_type=type(exc).__name__,
+        ) from exc
+
+
+def build_aigc_headers(*, include_content_type: bool = True) -> dict[str, str]:
+    if not AIGC_API_TOKEN:
+        raise HTTPException(400, "AIGC_API_TOKEN is not configured")
+    headers: dict[str, str] = {}
+    if include_content_type:
+        headers["Content-Type"] = "application/json"
+    token_value = f"{AIGC_AUTH_PREFIX}{AIGC_API_TOKEN}" if AIGC_AUTH_PREFIX is not None else AIGC_API_TOKEN
+    headers[AIGC_AUTH_HEADER] = token_value
+    return headers
+
+
+def call_aigc_upstream_post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if not AIGC_BASE_URL:
+        raise HTTPException(400, "AIGC_BASE_URL is not configured")
+
+    request_timestamp = str(int(time.time()))
+    url = f"{AIGC_BASE_URL}{path}"
+    resp = None
+    request_body = json.dumps(payload, ensure_ascii=False)
+
+    try:
+        resp = requests.post(
+            url,
+            json=payload,
+            headers=build_aigc_headers(),
+            timeout=AIGC_HTTP_TIMEOUT_SECONDS,
+        )
+        response_text = resp.text
+        with db_session() as session:
+            persist_api_call_log(
+                session=session,
+                path=f"AIGC {path}",
+                request_body=request_body,
+                request_timestamp=request_timestamp,
+                http_status=resp.status_code,
+                response_body=response_text,
+            )
+        resp.raise_for_status()
+        return resp.json()
+    except requests.RequestException as exc:
+        response_text = resp.text if resp is not None else None
+        status_code = resp.status_code if resp is not None else None
+        with db_session() as session:
+            persist_api_call_log(
+                session=session,
+                path=f"AIGC {path}",
+                request_body=request_body,
+                request_timestamp=request_timestamp,
+                http_status=status_code,
+                response_body=response_text,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+        raise UpstreamApiError(
+            "AIGC upstream request failed",
+            status_code=502,
+            upstream_status=status_code,
+            response_text=response_text,
+            error_type=type(exc).__name__,
+        ) from exc
+
+
+def build_review_headers(*, include_content_type: bool = True) -> dict[str, str]:
+    if not REVIEW_ACCESS_TOKEN:
+        raise HTTPException(400, "REVIEW_ACCESS_TOKEN is not configured")
+    headers: dict[str, str] = {}
+    if include_content_type:
+        headers["Content-Type"] = "application/json"
+    headers[REVIEW_AUTH_HEADER] = f"{REVIEW_AUTH_PREFIX}{REVIEW_ACCESS_TOKEN}"
+    return headers
+
+
+def call_review_upstream(
+    *,
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not REVIEW_BASE_URL:
+        raise HTTPException(400, "REVIEW_BASE_URL is not configured")
+
+    url = f"{REVIEW_BASE_URL}{path}"
+    request_timestamp = str(int(time.time()))
+    request_body = json.dumps(payload, ensure_ascii=False) if payload is not None else ""
+    resp = None
+
+    try:
+        if method.upper() == "GET":
+            params = {
+                key: value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+                for key, value in (payload or {}).items()
+                if value not in (None, "", [], {})
+            }
+            resp = requests.get(
+                url,
+                params=params,
+                headers=build_review_headers(include_content_type=False),
+                timeout=REVIEW_HTTP_TIMEOUT_SECONDS,
+            )
+            request_body = urlencode(params)
+        else:
+            resp = requests.post(
+                url,
+                json=payload or {},
+                headers=build_review_headers(),
+                timeout=REVIEW_HTTP_TIMEOUT_SECONDS,
+            )
+        response_text = resp.text
+        with db_session() as session:
+            persist_api_call_log(
+                session=session,
+                path=f"REVIEW {path}",
+                request_body=request_body,
+                request_timestamp=request_timestamp,
+                http_status=resp.status_code,
+                response_body=response_text,
+            )
+        resp.raise_for_status()
+        return resp.json()
+    except requests.RequestException as exc:
+        response_text = resp.text if resp is not None else None
+        status_code = resp.status_code if resp is not None else None
+        with db_session() as session:
+            persist_api_call_log(
+                session=session,
+                path=f"REVIEW {path}",
+                request_body=request_body,
+                request_timestamp=request_timestamp,
+                http_status=status_code,
+                response_body=response_text,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+        raise UpstreamApiError(
+            "Review upstream request failed",
+            status_code=502,
+            upstream_status=status_code,
+            response_text=response_text,
+            error_type=type(exc).__name__,
+        ) from exc
+
+
+def make_mock_review_response(name: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = payload or {}
+    if name == "suggestions":
+        return {
+            "code": 0,
+            "message": "success",
+            "data": {
+                "list": [
+                    {
+                        "repair_id": 10001,
+                        "material_id": payload.get("material_id", 8888),
+                        "reason": "素材含夸张宣传语",
+                        "preview_url": "https://mock.misanduo.local/review/preview-10001.mp4",
+                        "status": "ready",
+                    }
+                ]
+            },
+        }
+    if name == "cross_account":
+        return {
+            "code": 0,
+            "message": "success",
+            "data": {
+                "list": [
+                    {
+                        "account_id": payload.get("account_id", 123456),
+                        "repair_id": 10001,
+                        "material_id": payload.get("material_id", 8888),
+                    }
+                ]
+            },
+        }
+    if name == "adopt_create":
+        return {
+            "code": 0,
+            "message": "success",
+            "data": {
+                "task_id": f"review_task_{int(time.time() * 1000)}",
+                "status": "processing",
+            },
+        }
+    return {
+        "code": 0,
+        "message": "success",
+        "data": {
+            "task_id": payload.get("task_id", f"review_task_{int(time.time() * 1000)}"),
+            "status": "success",
+            "success_count": 1,
+            "failed_count": 0,
+        },
+    }
+
+
+def sync_aigc_task_from_response(
+    task: AigcVideoTask,
+    response: dict[str, Any],
+    db: Session,
+) -> AigcVideoTask:
+    data = response.get("data") if isinstance(response, dict) else None
+    result_video_url = (data or {}).get("video_url") or (data or {}).get("result_video_url")
+    result_cover_url = (data or {}).get("cover_url") or (data or {}).get("result_cover_url")
+    progress = int((data or {}).get("progress") or task.progress or 0)
+    status = (data or {}).get("status") or task.status
+    task.status = status
+    task.progress = progress
+    task.result_video_url = result_video_url or task.result_video_url
+    task.result_cover_url = result_cover_url or task.result_cover_url
+    task.response_body = json.dumps(response, ensure_ascii=False)
+    task.updated_at = now_iso()
+    db.flush()
+    return task
+
+
 def call_oauth_token_api(path: str, form_data: dict[str, Any]) -> dict[str, Any]:
     resp = requests.post(
         f"{DY_OAUTH_BASE_URL.rstrip('/')}{path}",
@@ -943,6 +1488,24 @@ def run_startup_migrations() -> None:
         for column_name, ddl in optional_auth_callback_columns.items():
             if column_name not in auth_callback_columns:
                 conn.exec_driver_sql(ddl)
+        task_tables = {
+            row[0]
+            for row in conn.exec_driver_sql(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        if "aigc_video_tasks" in task_tables:
+            task_columns = {
+                row[1]
+                for row in conn.exec_driver_sql("PRAGMA table_info(aigc_video_tasks)").fetchall()
+            }
+            optional_task_columns = {
+                "result_cover_url": "ALTER TABLE aigc_video_tasks ADD COLUMN result_cover_url TEXT",
+                "source": "ALTER TABLE aigc_video_tasks ADD COLUMN source VARCHAR(32) NOT NULL DEFAULT 'mock'",
+            }
+            for column_name, ddl in optional_task_columns.items():
+                if column_name not in task_columns:
+                    conn.exec_driver_sql(ddl)
 
 
 def get_configured_auth_payload() -> dict[str, Any]:
@@ -1200,6 +1763,128 @@ def list_api_call_logs(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
         }
         for item in logs
     ]
+
+
+@app.get("/aigc/video-tasks")
+def list_aigc_video_tasks(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    tasks = db.query(AigcVideoTask).order_by(AigcVideoTask.id.desc()).all()
+    return [serialize_aigc_task(item) for item in tasks]
+
+
+@app.post("/aigc/materials/upload")
+def upload_aigc_material(body: AigcPassthroughRequest) -> dict[str, Any]:
+    if AIGC_MOCK_ENABLED:
+        return {
+            "code": 0,
+            "msg": "success",
+            "data": {
+                "element_id": f"mock_element_{int(time.time() * 1000)}",
+                "status": "uploaded",
+                "payload": body.payload,
+            },
+        }
+    return call_aigc_upstream_post(AIGC_UPLOAD_ELEMENT_PATH, body.payload)
+
+
+@app.post("/review/suggestions")
+def get_review_suggestions(body: ReviewPassthroughRequest) -> dict[str, Any]:
+    if REVIEW_MOCK_ENABLED:
+        return make_mock_review_response("suggestions", body.payload)
+    return call_review_upstream(method="GET", path=REVIEW_SUGGESTIONS_PATH, payload=body.payload)
+
+
+@app.post("/review/cross-account")
+def get_review_cross_account(body: ReviewPassthroughRequest) -> dict[str, Any]:
+    if REVIEW_MOCK_ENABLED:
+        return make_mock_review_response("cross_account", body.payload)
+    return call_review_upstream(method="POST", path=REVIEW_CROSS_ACCOUNT_PATH, payload=body.payload)
+
+
+@app.post("/review/adopt-task")
+def create_review_adopt_task(body: ReviewPassthroughRequest) -> dict[str, Any]:
+    if REVIEW_MOCK_ENABLED:
+        return make_mock_review_response("adopt_create", body.payload)
+    return call_review_upstream(method="POST", path=REVIEW_ADOPT_CREATE_PATH, payload=body.payload)
+
+
+@app.post("/review/adopt-task/result")
+def get_review_adopt_task_result(body: ReviewPassthroughRequest) -> dict[str, Any]:
+    if REVIEW_MOCK_ENABLED:
+        return make_mock_review_response("adopt_result", body.payload)
+    return call_review_upstream(method="GET", path=REVIEW_ADOPT_RESULT_PATH, payload=body.payload)
+
+
+@app.post("/aigc/video-tasks")
+def create_aigc_video_task(
+    body: AigcVideoTaskCreateRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    payload = build_aigc_payload(body)
+    task_id = f"aigc_{int(time.time() * 1000)}"
+    source = "mock" if AIGC_MOCK_ENABLED else "upstream"
+
+    if AIGC_MOCK_ENABLED:
+        response = make_mock_aigc_response(task_id, body)
+    else:
+        response = create_aigc_task_via_upstream(payload)
+        data = response.get("data") if isinstance(response, dict) else None
+        task_id = (data or {}).get("task_id") or task_id
+
+    data = response.get("data") if isinstance(response, dict) else None
+    task = persist_aigc_video_task(
+        db,
+        task_id=task_id,
+        task_type=body.task_type,
+        title=body.title,
+        prompt=body.prompt,
+        script=body.script,
+        product_name=body.product_name,
+        selling_points=body.selling_points,
+        material_urls=body.material_urls,
+        image_urls=body.image_urls,
+        request_body=payload,
+        status=(data or {}).get("status") or "queued",
+        progress=int((data or {}).get("progress") or 0),
+        response_body=response if isinstance(response, dict) else None,
+        result_video_url=(data or {}).get("video_url") or (data or {}).get("result_video_url"),
+        result_cover_url=(data or {}).get("cover_url") or (data or {}).get("result_cover_url"),
+        error_message=None,
+        source=source,
+    )
+    return {"code": 0, "msg": "success", "data": serialize_aigc_task(task)}
+
+
+@app.get("/aigc/video-tasks/{task_id}")
+def get_aigc_video_task(task_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    task = db.query(AigcVideoTask).filter(AigcVideoTask.task_id == task_id).one_or_none()
+    if task is None:
+        raise HTTPException(404, "AIGC task not found")
+    return {"code": 0, "msg": "success", "data": serialize_aigc_task(task)}
+
+
+@app.post("/aigc/video-tasks/{task_id}/refresh")
+def refresh_aigc_video_task(task_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    task = db.query(AigcVideoTask).filter(AigcVideoTask.task_id == task_id).one_or_none()
+    if task is None:
+        raise HTTPException(404, "AIGC task not found")
+
+    if task.source == "mock":
+        response = {
+            "code": 0,
+            "msg": "success",
+            "data": {
+                "task_id": task.task_id,
+                "status": "succeeded",
+                "progress": 100,
+                "video_url": task.result_video_url,
+                "cover_url": task.result_cover_url,
+            },
+        }
+    else:
+        response = query_aigc_task_via_upstream(task.task_id)
+
+    task = sync_aigc_task_from_response(task, response, db)
+    return {"code": 0, "msg": "success", "data": serialize_aigc_task(task)}
 
 
 @app.get("/auth-callback-records")
