@@ -1,6 +1,7 @@
 import hmac
 import hashlib
 import json
+import logging
 import os
 import time
 from contextlib import contextmanager
@@ -79,6 +80,34 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 
 app = FastAPI(title="Douyin DM Lead Demo", version="0.1.0")
+logger = logging.getLogger("douyin_demo")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+
+@app.middleware("http")
+async def webhook_request_logger(request: Request, call_next):
+    if request.url.path == "/webhook/douyin":
+        body = await request.body()
+        logger.info(
+            "webhook incoming method=%s path=%s headers=%s body=%s",
+            request.method,
+            request.url.path,
+            {
+                "X-Auth-Timestamp": request.headers.get("X-Auth-Timestamp"),
+                "Authorization": request.headers.get("Authorization"),
+                "Content-Type": request.headers.get("Content-Type"),
+            },
+            body.decode("utf-8", errors="replace")[:4000],
+        )
+        async def receive():
+            return {"type": "http.request", "body": body, "more_body": False}
+        request = Request(request.scope, receive)
+
+    response = await call_next(request)
+    if request.url.path == "/webhook/douyin":
+        logger.info("webhook response method=%s path=%s status=%s", request.method, request.url.path, response.status_code)
+    return response
 
 
 class WebhookEvent(Base):
@@ -466,9 +495,23 @@ async def verify_signature(
         raise HTTPException(401, "Request expired")
 
     body = await request.body()
+    logger.info(
+        "webhook verify start path=%s timestamp=%s auth_present=%s body=%s",
+        request.url.path,
+        ts_str,
+        bool(signature),
+        body.decode("utf-8", errors="replace")[:2000],
+    )
     sign_str = body.decode("utf-8") + "-" + ts_str
     expect = hashlib.sha256((DY_SECRET_KEY + sign_str).encode("utf-8")).hexdigest()
     if not hmac.compare_digest(expect, signature):
+        logger.warning(
+            "webhook signature mismatch path=%s timestamp=%s expected=%s actual=%s",
+            request.url.path,
+            ts_str,
+            expect,
+            signature,
+        )
         raise HTTPException(401, "Signature mismatch")
 
 
@@ -1631,6 +1674,7 @@ async def douyin_webhook(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     payload = await request.json()
+    logger.info("webhook payload accepted path=%s payload=%s", request.url.path, json.dumps(payload, ensure_ascii=False)[:4000])
     event_key = build_event_key(payload)
     existing_event = find_existing_event_by_key(db, event_key)
     is_duplicate = existing_event is not None
@@ -1650,7 +1694,7 @@ async def douyin_webhook(
             operator_name="system",
         )
 
-    return {
+    response = {
         "code": 0,
         "msg": "success",
         "data": {
@@ -1664,6 +1708,8 @@ async def douyin_webhook(
             "message_id": message.id if message else None,
         },
     }
+    logger.info("webhook processed path=%s response=%s", request.url.path, json.dumps(response, ensure_ascii=False))
+    return response
 
 
 @app.get("/leads")
