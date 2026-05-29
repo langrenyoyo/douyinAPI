@@ -1079,6 +1079,7 @@ export default function App() {
   const [reviewLoading, setReviewLoading] = useState(false)
   const [reviewResult, setReviewResult] = useState(null)
   const [reviewAuthInfo, setReviewAuthInfo] = useState(null)
+  const [reviewAuthLoadError, setReviewAuthLoadError] = useState('')
 
   async function loadWorkspaceData() {
     setLoading(true)
@@ -1110,7 +1111,13 @@ export default function App() {
       setUnreadSummary(unreadData || {})
       setWorkspaceAuthStatus(authStatusData?.data || null)
       setVideoTasks(Array.isArray(videoTasksData) ? videoTasksData : [])
-      setReviewAuthInfo(reviewAuthData?.data || null)
+      if (reviewAuthRes.ok && reviewAuthData?.code === 0) {
+        setReviewAuthInfo(reviewAuthData?.data || null)
+        setReviewAuthLoadError('')
+      } else {
+        setReviewAuthInfo(null)
+        setReviewAuthLoadError(reviewAuthData?.msg || '巨量广告授权信息加载失败')
+      }
 
       if (conversationsData?.length) {
         setActiveConversation((prev) =>
@@ -1461,18 +1468,24 @@ export default function App() {
             reviewResult={reviewResult}
           />
         ) : null}
-        {currentPage === 'review-test' && reviewAuthInfo?.auth_url ? (
+        {currentPage === 'review-test' ? (
           <section className="table-card">
             <div className="table-header">
               <strong>巨量广告授权</strong>
               <span className="status-dot">使用 APP_ID / Secret 换取审核 Access-Token</span>
             </div>
-            <div className="event-list auth-callback-grid">
-              <div className="event-item"><span>APP_ID</span><span>{reviewAuthInfo.app_id || '--'}</span></div>
-              <div className="event-item"><span>scope</span><span>{reviewAuthInfo.scope || '--'}</span></div>
-              <div className="event-item full"><span>redirect_uri</span><span>{reviewAuthInfo.redirect_uri || '--'}</span></div>
-              <div className="event-item full"><span>授权链接</span><span><a href={reviewAuthInfo.auth_url} target="_blank" rel="noreferrer">{reviewAuthInfo.auth_url}</a></span></div>
-            </div>
+            {reviewAuthInfo?.auth_url ? (
+              <div className="event-list auth-callback-grid">
+                <div className="event-item"><span>APP_ID</span><span>{reviewAuthInfo.app_id || '--'}</span></div>
+                <div className="event-item"><span>scope</span><span>{reviewAuthInfo.scope || '--'}</span></div>
+                <div className="event-item full"><span>redirect_uri</span><span>{reviewAuthInfo.redirect_uri || '--'}</span></div>
+                <div className="event-item full"><span>授权链接</span><span><a href={reviewAuthInfo.auth_url} target="_blank" rel="noreferrer">{reviewAuthInfo.auth_url}</a></span></div>
+              </div>
+            ) : (
+              <section className="banner warning">
+                {reviewAuthLoadError || '巨量广告授权链接尚未生成。请先确认后端已重启，并检查 REVIEW_APP_ID、REVIEW_SECRET、REVIEW_AUTH_REDIRECT_URL 配置。'}
+              </section>
+            )}
           </section>
         ) : null}
       </main>
