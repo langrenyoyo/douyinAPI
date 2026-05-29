@@ -63,6 +63,14 @@ REVIEW_BASE_URL = os.getenv("REVIEW_BASE_URL", "https://api.oceanengine.com").rs
 REVIEW_ACCESS_TOKEN = os.getenv("REVIEW_ACCESS_TOKEN", "")
 REVIEW_AUTH_HEADER = os.getenv("REVIEW_AUTH_HEADER", "Access-Token")
 REVIEW_AUTH_PREFIX = os.getenv("REVIEW_AUTH_PREFIX", "")
+REVIEW_APP_ID = os.getenv("REVIEW_APP_ID", "")
+REVIEW_SECRET = os.getenv("REVIEW_SECRET", "")
+REVIEW_OAUTH_BASE_URL = os.getenv("REVIEW_OAUTH_BASE_URL", "https://open.oceanengine.com").rstrip("/")
+REVIEW_AUTH_REDIRECT_URL = os.getenv("REVIEW_AUTH_REDIRECT_URL", "")
+REVIEW_AUTH_SCOPE = os.getenv("REVIEW_AUTH_SCOPE", "account_relation:read")
+REVIEW_AUTH_STATE = os.getenv("REVIEW_AUTH_STATE", "review_oauth")
+REVIEW_APP_ACCESS_TOKEN_PATH = os.getenv("REVIEW_APP_ACCESS_TOKEN_PATH", "/open_api/oauth2/app_access_token/")
+REVIEW_AUTH_TOKEN_PATH = os.getenv("REVIEW_AUTH_TOKEN_PATH", "/open_api/oauth2/access_token/")
 REVIEW_SUGGESTIONS_PATH = os.getenv("REVIEW_SUGGESTIONS_PATH", "/open_api/v3.0/reject_material/ai_repair/get/")
 REVIEW_CROSS_ACCOUNT_PATH = os.getenv("REVIEW_CROSS_ACCOUNT_PATH", "/open_api/v3.0/reject_material/ai_repair/cross_account/get/")
 REVIEW_ADOPT_CREATE_PATH = os.getenv("REVIEW_ADOPT_CREATE_PATH", "/open_api/v3.0/reject_material/ai_repair/adopt_task/create/")
@@ -265,6 +273,29 @@ class AuthTokenRecord(Base):
     updated_at = Column(String(64), nullable=False)
 
 
+class ReviewAuthRecord(Base):
+    __tablename__ = "review_auth_records"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    auth_code = Column(Text, nullable=True)
+    state = Column(Text, nullable=True)
+    advertiser_ids = Column(Text, nullable=True)
+    callback_url = Column(Text, nullable=False)
+    raw_query = Column(Text, nullable=True)
+    access_token = Column(Text, nullable=True)
+    refresh_token = Column(Text, nullable=True)
+    expires_in = Column(Integer, nullable=True)
+    refresh_expires_in = Column(Integer, nullable=True)
+    access_token_expires_at = Column(String(64), nullable=True)
+    refresh_token_expires_at = Column(String(64), nullable=True)
+    status = Column(String(64), nullable=False)
+    error_code = Column(String(64), nullable=True)
+    error_message = Column(Text, nullable=True)
+    raw_response = Column(Text, nullable=True)
+    created_at = Column(String(64), nullable=False)
+    updated_at = Column(String(64), nullable=False)
+
+
 class AigcVideoTask(Base):
     __tablename__ = "aigc_video_tasks"
 
@@ -400,6 +431,14 @@ class AuthCallbackSaveRequest(BaseModel):
     open_id: str | None = None
     nick_name: str | None = None
     avatar: str | None = None
+    raw_query: str | None = None
+    callback_url: str
+
+
+class ReviewAuthCallbackSaveRequest(BaseModel):
+    auth_code: str | None = None
+    state: str | None = None
+    advertiser_ids: list[str] = Field(default_factory=list)
     raw_query: str | None = None
     callback_url: str
 
@@ -1106,13 +1145,135 @@ def call_aigc_upstream_post(path: str, payload: dict[str, Any]) -> dict[str, Any
         ) from exc
 
 
+def call_review_oauth_api(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    url = f"{REVIEW_OAUTH_BASE_URL}{path}"
+    request_timestamp = str(int(time.time()))
+    request_body = json.dumps(payload, ensure_ascii=False)
+    resp = None
+
+    try:
+        resp = requests.post(
+            url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=REVIEW_HTTP_TIMEOUT_SECONDS,
+        )
+        response_text = resp.text
+        with db_session() as session:
+            persist_api_call_log(
+                session=session,
+                path=f"REVIEW_OAUTH {path}",
+                request_body=request_body,
+                request_timestamp=request_timestamp,
+                http_status=resp.status_code,
+                response_body=response_text,
+            )
+        resp.raise_for_status()
+        return resp.json()
+    except requests.RequestException as exc:
+        response_text = resp.text if resp is not None else None
+        status_code = resp.status_code if resp is not None else None
+        with db_session() as session:
+            persist_api_call_log(
+                session=session,
+                path=f"REVIEW_OAUTH {path}",
+                request_body=request_body,
+                request_timestamp=request_timestamp,
+                http_status=status_code,
+                response_body=response_text,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+        raise UpstreamApiError(
+            "Review OAuth request failed",
+            status_code=502,
+            upstream_status=status_code,
+            response_text=response_text,
+            error_type=type(exc).__name__,
+        ) from exc
+
+
+def future_iso_from_now(seconds: int | None) -> str | None:
+    if not seconds:
+        return None
+    return future_iso(seconds)
+
+
+def persist_review_auth_record(
+    session: Session,
+    *,
+    body: ReviewAuthCallbackSaveRequest,
+    token_data: dict[str, Any] | None = None,
+    raw_response: dict[str, Any] | None = None,
+    status: str = "pending",
+    error_code: str | None = None,
+    error_message: str | None = None,
+) -> ReviewAuthRecord:
+    token_data = token_data or {}
+    expires_in = int(token_data["expires_in"]) if str(token_data.get("expires_in") or "").isdigit() else None
+    refresh_expires_in = (
+        int(token_data["refresh_token_expires_in"])
+        if str(token_data.get("refresh_token_expires_in") or "").isdigit()
+        else None
+    )
+    record = ReviewAuthRecord(
+        auth_code=body.auth_code,
+        state=body.state,
+        advertiser_ids=json.dumps(body.advertiser_ids, ensure_ascii=False) if body.advertiser_ids else None,
+        callback_url=body.callback_url,
+        raw_query=body.raw_query,
+        access_token=token_data.get("access_token"),
+        refresh_token=token_data.get("refresh_token"),
+        expires_in=expires_in,
+        refresh_expires_in=refresh_expires_in,
+        access_token_expires_at=future_iso_from_now(expires_in),
+        refresh_token_expires_at=future_iso_from_now(refresh_expires_in),
+        status=status,
+        error_code=error_code,
+        error_message=error_message,
+        raw_response=json.dumps(raw_response, ensure_ascii=False) if raw_response is not None else None,
+        created_at=now_iso(),
+        updated_at=now_iso(),
+    )
+    session.add(record)
+    session.flush()
+    return record
+
+
+def exchange_review_auth_code_for_access_token(auth_code: str) -> dict[str, Any]:
+    if not REVIEW_APP_ID:
+        raise HTTPException(400, "REVIEW_APP_ID is not configured")
+    if not REVIEW_SECRET:
+        raise HTTPException(400, "REVIEW_SECRET is not configured")
+    return call_review_oauth_api(
+        REVIEW_AUTH_TOKEN_PATH,
+        {
+            "app_id": REVIEW_APP_ID,
+            "secret": REVIEW_SECRET,
+            "grant_type": "auth_code",
+            "auth_code": auth_code,
+        },
+    )
+
+
+def get_latest_review_access_token() -> str:
+    if REVIEW_ACCESS_TOKEN:
+        return REVIEW_ACCESS_TOKEN
+
+    with db_session() as session:
+        record = session.query(ReviewAuthRecord).order_by(ReviewAuthRecord.id.desc()).first()
+        if record and record.access_token and record.status == "success":
+            return record.access_token
+
+    raise HTTPException(400, "REVIEW_ACCESS_TOKEN is not configured")
+
+
 def build_review_headers(*, include_content_type: bool = True) -> dict[str, str]:
-    if not REVIEW_ACCESS_TOKEN:
-        raise HTTPException(400, "REVIEW_ACCESS_TOKEN is not configured")
+    token = get_latest_review_access_token()
     headers: dict[str, str] = {}
     if include_content_type:
         headers["Content-Type"] = "application/json"
-    headers[REVIEW_AUTH_HEADER] = f"{REVIEW_AUTH_PREFIX}{REVIEW_ACCESS_TOKEN}"
+    headers[REVIEW_AUTH_HEADER] = f"{REVIEW_AUTH_PREFIX}{token}"
     return headers
 
 
@@ -1409,6 +1570,83 @@ def build_bind_auth_status(
     }
 
 
+def build_review_auth_url() -> str:
+    if not REVIEW_APP_ID:
+        raise HTTPException(400, "REVIEW_APP_ID is not configured")
+    if not REVIEW_AUTH_REDIRECT_URL:
+        raise HTTPException(400, "REVIEW_AUTH_REDIRECT_URL is not configured")
+
+    query = urlencode(
+        {
+            "app_id": REVIEW_APP_ID,
+            "redirect_uri": REVIEW_AUTH_REDIRECT_URL,
+            "scope": REVIEW_AUTH_SCOPE,
+            "state": REVIEW_AUTH_STATE,
+        }
+    )
+    return f"{REVIEW_OAUTH_BASE_URL}/open_api/oauth2/authorize?{query}"
+
+
+def build_review_auth_status(record: ReviewAuthRecord | None) -> dict[str, Any]:
+    if record is None:
+        return {
+            "authorized": False,
+            "need_reauthorize": True,
+            "reason": "no_review_auth_record",
+            "configured_review_auth_redirect_url": REVIEW_AUTH_REDIRECT_URL,
+            "configured_review_app_id": REVIEW_APP_ID,
+            "token_source": "env" if REVIEW_ACCESS_TOKEN else "oauth",
+            "access_token_available": bool(REVIEW_ACCESS_TOKEN),
+            "review_auth_record": None,
+        }
+
+    refresh_expired = False
+    if record.refresh_token_expires_at:
+        try:
+            refresh_expired = datetime.fromisoformat(record.refresh_token_expires_at) <= datetime.now(timezone.utc)
+        except ValueError:
+            refresh_expired = False
+
+    authorized = record.status == "success" and bool(record.access_token) and not refresh_expired
+    reason = "ok"
+    if record.status != "success":
+        reason = "review_token_exchange_failed"
+    elif not record.access_token:
+        reason = "review_access_token_missing"
+    elif refresh_expired:
+        reason = "review_refresh_token_expired"
+
+    advertiser_ids: list[str] = []
+    if record.advertiser_ids:
+        try:
+            advertiser_ids = json.loads(record.advertiser_ids)
+        except json.JSONDecodeError:
+            advertiser_ids = []
+
+    return {
+        "authorized": authorized or bool(REVIEW_ACCESS_TOKEN),
+        "need_reauthorize": not authorized and not bool(REVIEW_ACCESS_TOKEN),
+        "reason": "env_access_token_configured" if REVIEW_ACCESS_TOKEN else reason,
+        "configured_review_auth_redirect_url": REVIEW_AUTH_REDIRECT_URL,
+        "configured_review_app_id": REVIEW_APP_ID,
+        "token_source": "env" if REVIEW_ACCESS_TOKEN else "oauth",
+        "access_token_available": bool(REVIEW_ACCESS_TOKEN or record.access_token),
+        "review_auth_record": {
+            "id": record.id,
+            "auth_code": record.auth_code,
+            "state": record.state,
+            "advertiser_ids": advertiser_ids,
+            "status": record.status,
+            "error_code": record.error_code,
+            "error_message": record.error_message,
+            "access_token_expires_at": record.access_token_expires_at,
+            "refresh_token_expires_at": record.refresh_token_expires_at,
+            "created_at": record.created_at,
+            "updated_at": record.updated_at,
+        },
+    }
+
+
 def signed_post(path: str, body: dict[str, Any]) -> dict[str, Any]:
     if not DY_SECRET_KEY:
         raise HTTPException(500, "DY_SECRET_KEY is not configured")
@@ -1550,6 +1788,28 @@ def run_startup_migrations() -> None:
             }
             for column_name, ddl in optional_task_columns.items():
                 if column_name not in task_columns:
+                    conn.exec_driver_sql(ddl)
+        if "review_auth_records" in task_tables:
+            review_auth_columns = {
+                row[1]
+                for row in conn.exec_driver_sql("PRAGMA table_info(review_auth_records)").fetchall()
+            }
+            optional_review_auth_columns = {
+                "advertiser_ids": "ALTER TABLE review_auth_records ADD COLUMN advertiser_ids TEXT",
+                "access_token": "ALTER TABLE review_auth_records ADD COLUMN access_token TEXT",
+                "refresh_token": "ALTER TABLE review_auth_records ADD COLUMN refresh_token TEXT",
+                "expires_in": "ALTER TABLE review_auth_records ADD COLUMN expires_in INTEGER",
+                "refresh_expires_in": "ALTER TABLE review_auth_records ADD COLUMN refresh_expires_in INTEGER",
+                "access_token_expires_at": "ALTER TABLE review_auth_records ADD COLUMN access_token_expires_at VARCHAR(64)",
+                "refresh_token_expires_at": "ALTER TABLE review_auth_records ADD COLUMN refresh_token_expires_at VARCHAR(64)",
+                "status": "ALTER TABLE review_auth_records ADD COLUMN status VARCHAR(64) NOT NULL DEFAULT 'pending'",
+                "error_code": "ALTER TABLE review_auth_records ADD COLUMN error_code VARCHAR(64)",
+                "error_message": "ALTER TABLE review_auth_records ADD COLUMN error_message TEXT",
+                "raw_response": "ALTER TABLE review_auth_records ADD COLUMN raw_response TEXT",
+                "updated_at": "ALTER TABLE review_auth_records ADD COLUMN updated_at VARCHAR(64)",
+            }
+            for column_name, ddl in optional_review_auth_columns.items():
+                if column_name not in review_auth_columns:
                     conn.exec_driver_sql(ddl)
 
 
@@ -1973,6 +2233,98 @@ def create_auth_callback_record(
             "token_record_id": token_record.id if token_record else None,
         },
     }
+
+
+@app.get("/review/auth-url")
+def get_review_auth_url() -> dict[str, Any]:
+    return {
+        "code": 0,
+        "msg": "success",
+        "data": {
+            "auth_url": build_review_auth_url(),
+            "redirect_uri": REVIEW_AUTH_REDIRECT_URL,
+            "app_id": REVIEW_APP_ID,
+            "scope": REVIEW_AUTH_SCOPE,
+            "state": REVIEW_AUTH_STATE,
+        },
+    }
+
+
+@app.get("/review/auth-records")
+def list_review_auth_records(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    records = db.query(ReviewAuthRecord).order_by(ReviewAuthRecord.id.desc()).all()
+    result: list[dict[str, Any]] = []
+    for item in records:
+        advertiser_ids: list[str] = []
+        if item.advertiser_ids:
+            try:
+                advertiser_ids = json.loads(item.advertiser_ids)
+            except json.JSONDecodeError:
+                advertiser_ids = []
+        result.append(
+            {
+                "id": item.id,
+                "auth_code": item.auth_code,
+                "state": item.state,
+                "advertiser_ids": advertiser_ids,
+                "callback_url": item.callback_url,
+                "raw_query": item.raw_query,
+                "status": item.status,
+                "error_code": item.error_code,
+                "error_message": item.error_message,
+                "access_token_expires_at": item.access_token_expires_at,
+                "refresh_token_expires_at": item.refresh_token_expires_at,
+                "created_at": item.created_at,
+                "updated_at": item.updated_at,
+            }
+        )
+    return result
+
+
+@app.post("/review/auth-callback-records")
+def create_review_auth_callback_record(
+    body: ReviewAuthCallbackSaveRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    token_response = None
+    token_data = None
+    status = "pending"
+    error_code = None
+    error_message = None
+
+    if body.auth_code:
+        token_response = exchange_review_auth_code_for_access_token(body.auth_code)
+        token_data = (token_response or {}).get("data") if isinstance(token_response, dict) else None
+        code_value = str((token_response or {}).get("code") or "")
+        message_value = (token_response or {}).get("message") if isinstance(token_response, dict) else ""
+        status = "success" if code_value in {"", "0"} and token_data else "error"
+        error_code = None if status == "success" else code_value or "token_exchange_failed"
+        error_message = None if status == "success" else message_value or "Review auth token exchange failed"
+
+    record = persist_review_auth_record(
+        db,
+        body=body,
+        token_data=token_data,
+        raw_response=token_response,
+        status=status,
+        error_code=error_code,
+        error_message=error_message,
+    )
+    return {
+        "code": 0,
+        "msg": "success",
+        "data": {
+            "id": record.id,
+            "status": record.status,
+            "access_token_available": bool(record.access_token),
+        },
+    }
+
+
+@app.get("/review/auth-status")
+def get_review_auth_status(db: Session = Depends(get_db)) -> dict[str, Any]:
+    latest_record = db.query(ReviewAuthRecord).order_by(ReviewAuthRecord.id.desc()).first()
+    return {"code": 0, "msg": "success", "data": build_review_auth_status(latest_record)}
 
 
 @app.post("/douyin/list-bind-info")

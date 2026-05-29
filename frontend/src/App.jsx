@@ -39,6 +39,144 @@ const defaultReviewForm = {
   adopt_result_payload: '{\n  "task_id": "replace-with-task-id"\n}',
 }
 
+function ReviewAuthCallbackPage() {
+  const params = new URLSearchParams(window.location.search)
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, '').replace(/^\?/, ''))
+  const authCode = params.get('auth_code') || params.get('code') || hashParams.get('auth_code') || hashParams.get('code')
+  const state = params.get('state') || hashParams.get('state')
+  const advertiserIdsRaw = params.get('advertiser_ids') || hashParams.get('advertiser_ids') || ''
+  const advertiserIds = advertiserIdsRaw ? advertiserIdsRaw.split(',').map((item) => item.trim()).filter(Boolean) : []
+  const rawUrl = window.location.href
+  const rawQuery = window.location.search || window.location.hash || ''
+  const [saveStatus, setSaveStatus] = useState('idle')
+  const [saveMessage, setSaveMessage] = useState('')
+  const [latestRecord, setLatestRecord] = useState(null)
+  const [authStatus, setAuthStatus] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function saveCallbackResult() {
+      setSaveStatus('saving')
+      setSaveMessage('')
+      try {
+        const res = await fetch('/review/auth-callback-records', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            auth_code: authCode,
+            state,
+            advertiser_ids: advertiserIds,
+            raw_query: rawQuery,
+            callback_url: rawUrl,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok || data?.code !== 0) {
+          throw new Error(data?.msg || '保存广告授权回调失败')
+        }
+        if (!cancelled) {
+          setSaveStatus('success')
+          setSaveMessage('广告授权回调结果已保存')
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setSaveStatus('error')
+          setSaveMessage(err.message || '保存广告授权回调失败')
+        }
+      }
+    }
+
+    async function loadLatestRecord() {
+      try {
+        const [recordRes, statusRes] = await Promise.all([fetch('/review/auth-records'), fetch('/review/auth-status')])
+        const data = await recordRes.json()
+        const statusData = await statusRes.json()
+        if (!cancelled) {
+          setLatestRecord(Array.isArray(data) && data.length ? data[0] : null)
+          setAuthStatus(statusData?.data || null)
+        }
+      } catch {
+        if (!cancelled) {
+          setLatestRecord(null)
+          setAuthStatus(null)
+        }
+      }
+    }
+
+    saveCallbackResult().finally(loadLatestRecord)
+
+    return () => {
+      cancelled = true
+    }
+  }, [advertiserIdsRaw, authCode, rawQuery, rawUrl, state])
+
+  return (
+    <div className="app-shell auth-callback-shell">
+      <main className="content full-width">
+        <header className="topbar">
+          <div>
+            <small>Douyin DM Lead Hub</small>
+            <h1>巨量广告授权回调结果</h1>
+          </div>
+        </header>
+
+        <section className="table-card">
+          <div className="table-header">
+            <strong>回调参数</strong>
+          </div>
+          <div className="event-list auth-callback-grid">
+            <div className="event-item"><span>auth_code</span><span>{authCode || '--'}</span></div>
+            <div className="event-item"><span>state</span><span>{state || '--'}</span></div>
+            <div className="event-item full"><span>advertiser_ids</span><span>{advertiserIds.length ? advertiserIds.join(', ') : '--'}</span></div>
+            <div className="event-item full"><span>当前地址</span><span>{rawUrl}</span></div>
+          </div>
+        </section>
+
+        <section className={`banner ${saveStatus === 'error' ? 'warning' : 'info'}`}>
+          {saveStatus === 'saving' ? '正在保存广告授权回调结果...' : null}
+          {saveStatus === 'success' ? saveMessage : null}
+          {saveStatus === 'error' ? saveMessage : null}
+          {saveStatus === 'idle' ? '等待保存广告授权回调结果' : null}
+        </section>
+
+        {latestRecord ? (
+          <section className="table-card">
+            <div className="table-header">
+              <strong>最近一次广告授权记录</strong>
+            </div>
+            <div className="event-list auth-callback-grid">
+              <div className="event-item"><span>保存时间</span><span>{latestRecord.created_at || '--'}</span></div>
+              <div className="event-item"><span>状态</span><span>{latestRecord.status || '--'}</span></div>
+              <div className="event-item"><span>state</span><span>{latestRecord.state || '--'}</span></div>
+              <div className="event-item full"><span>advertiser_ids</span><span>{latestRecord.advertiser_ids?.length ? latestRecord.advertiser_ids.join(', ') : '--'}</span></div>
+              <div className="event-item full"><span>错误信息</span><span>{latestRecord.error_message || '--'}</span></div>
+            </div>
+          </section>
+        ) : null}
+
+        {authStatus ? (
+          <section className="table-card">
+            <div className="table-header">
+              <strong>当前广告授权状态</strong>
+            </div>
+            <div className="event-list auth-callback-grid">
+              <div className="event-item"><span>是否可用</span><span>{authStatus.authorized ? '是' : '否'}</span></div>
+              <div className="event-item"><span>token 来源</span><span>{authStatus.token_source || '--'}</span></div>
+              <div className="event-item"><span>是否需重授权</span><span>{authStatus.need_reauthorize ? '是' : '否'}</span></div>
+              <div className="event-item"><span>原因</span><span>{authStatus.reason || '--'}</span></div>
+              <div className="event-item full"><span>配置的 APP_ID</span><span>{authStatus.configured_review_app_id || '--'}</span></div>
+              <div className="event-item full"><span>授权回调地址</span><span>{authStatus.configured_review_auth_redirect_url || '--'}</span></div>
+            </div>
+          </section>
+        ) : null}
+      </main>
+    </div>
+  )
+}
+
 function formatDateTime(value) {
   if (!value) return '--'
   const num = Number(value)
@@ -905,9 +1043,14 @@ function AuthCallbackPage() {
 
 export default function App() {
   const isAuthCallbackPage = window.location.pathname === '/auth/callback'
+  const isReviewAuthCallbackPage = window.location.pathname === '/review/auth/callback'
 
   if (isAuthCallbackPage) {
     return <AuthCallbackPage />
+  }
+
+  if (isReviewAuthCallbackPage) {
+    return <ReviewAuthCallbackPage />
   }
 
   const [currentPage, setCurrentPage] = useState('leads')
@@ -935,12 +1078,13 @@ export default function App() {
   const [reviewForm, setReviewForm] = useState(defaultReviewForm)
   const [reviewLoading, setReviewLoading] = useState(false)
   const [reviewResult, setReviewResult] = useState(null)
+  const [reviewAuthInfo, setReviewAuthInfo] = useState(null)
 
   async function loadWorkspaceData() {
     setLoading(true)
     setWorkspaceAuthLoading(true)
     try {
-      const [statsRes, leadsRes, conversationsRes, quickRepliesRes, unreadRes, authStatusRes, videoTasksRes] = await Promise.all([
+      const [statsRes, leadsRes, conversationsRes, quickRepliesRes, unreadRes, authStatusRes, videoTasksRes, reviewAuthRes] = await Promise.all([
         fetch('/dashboard/lead-stats'),
         fetch('/leads?page=1&page_size=20'),
         fetch('/conversations'),
@@ -948,6 +1092,7 @@ export default function App() {
         fetch('/conversations/unread-summary'),
         fetch('/auth-status'),
         fetch('/aigc/video-tasks'),
+        fetch('/review/auth-url'),
       ])
       const statsData = await statsRes.json()
       const leadsData = await leadsRes.json()
@@ -956,6 +1101,7 @@ export default function App() {
       const unreadData = await unreadRes.json()
       const authStatusData = await authStatusRes.json()
       const videoTasksData = await videoTasksRes.json()
+      const reviewAuthData = await reviewAuthRes.json()
 
       setStats(statsData)
       setLeads(leadsData.items || [])
@@ -964,6 +1110,7 @@ export default function App() {
       setUnreadSummary(unreadData || {})
       setWorkspaceAuthStatus(authStatusData?.data || null)
       setVideoTasks(Array.isArray(videoTasksData) ? videoTasksData : [])
+      setReviewAuthInfo(reviewAuthData?.data || null)
 
       if (conversationsData?.length) {
         setActiveConversation((prev) =>
@@ -1313,6 +1460,20 @@ export default function App() {
             reviewLoading={reviewLoading}
             reviewResult={reviewResult}
           />
+        ) : null}
+        {currentPage === 'review-test' && reviewAuthInfo?.auth_url ? (
+          <section className="table-card">
+            <div className="table-header">
+              <strong>巨量广告授权</strong>
+              <span className="status-dot">使用 APP_ID / Secret 换取审核 Access-Token</span>
+            </div>
+            <div className="event-list auth-callback-grid">
+              <div className="event-item"><span>APP_ID</span><span>{reviewAuthInfo.app_id || '--'}</span></div>
+              <div className="event-item"><span>scope</span><span>{reviewAuthInfo.scope || '--'}</span></div>
+              <div className="event-item full"><span>redirect_uri</span><span>{reviewAuthInfo.redirect_uri || '--'}</span></div>
+              <div className="event-item full"><span>授权链接</span><span><a href={reviewAuthInfo.auth_url} target="_blank" rel="noreferrer">{reviewAuthInfo.auth_url}</a></span></div>
+            </div>
+          </section>
         ) : null}
       </main>
     </div>
